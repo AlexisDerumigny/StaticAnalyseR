@@ -427,6 +427,50 @@ find_inconsistent_parents <- function(edges) {
 }
 
 
+## Source-file discovery  ======================================================
+
+
+# Find R source files in requested package directories.
+#
+# Converts directories relative to `package_path` into full paths, ignores
+# requested directories that do not exist, and recursively finds files whose
+# names end in `.R` or `.r`.
+find_r_source_files <- function(package_path, source_directories)
+{
+  source_paths <- file.path(package_path, source_directories)
+
+  source_paths <- source_paths[dir.exists(source_paths)]
+
+  if (length(source_paths) == 0L) {
+    stop(
+      "None of the requested source directories exists.",
+      call. = FALSE
+    )
+  }
+
+  source_files <- unlist(
+    lapply(
+      source_paths,
+      list.files,
+      pattern = "\\.[Rr]$",
+      recursive = TRUE,
+      full.names = TRUE
+    ),
+    use.names = FALSE
+  )
+
+  if (length(source_files) == 0L) {
+    stop(
+      "No R source files were found.",
+      call. = FALSE
+    )
+  }
+
+  return(source_files)
+}
+
+
+
 # Find source locations of registered condition constructor calls.
 #
 # Uses the parser token table to locate calls whose names occur in
@@ -496,31 +540,10 @@ extract_condition_hierarchy <- function(
     package_path = ".",
     source_directories = "R",
     argument_names = c("class", "subclass"),
-    subclass_suffixes = NULL
-) {
-  source_directories <- file.path(package_path, source_directories)
-
-  source_directories <- source_directories[dir.exists(source_directories)]
-
-  if (length(source_directories) == 0L) {
-    stop("None of the requested source directories exists.",
-         call. = FALSE)
-  }
-
-  source_files <- unlist(
-    lapply(
-      source_directories,
-      list.files,
-      pattern = "\\.[Rr]$",
-      recursive = TRUE,
-      full.names = TRUE
-    ),
-    use.names = FALSE
-  )
-
-  if (length(source_files) == 0L) {
-    stop("No R source files were found.", call. = FALSE)
-  }
+    subclass_suffixes = NULL)
+{
+  source_files <- find_r_source_files(package_path = package_path,
+                                      source_directories = source_directories)
 
   current_constructor_locations <- data.frame(
     call = character(),
