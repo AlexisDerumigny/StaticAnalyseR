@@ -4,6 +4,18 @@
 # This performs static analysis: package code is parsed but not executed.
 
 
+bind_rows <- function(rows, empty_result = NULL) {
+  if (length(rows) == 0L) {
+    return(empty_result)
+  }
+
+  result = do.call(rbind, rows)
+  row.names(result) <- NULL
+
+  return (result)
+}
+
+
 get_call_name <- function(expr) {
   if (!is.call(expr)) {
     return(NA_character_)
@@ -191,20 +203,13 @@ extract_condition_hierarchy <- function(
     argument_names = c("class", "subclass"),
     subclass_suffixes = NULL
 ) {
-  source_directories <- file.path(
-    package_path,
-    source_directories
-  )
+  source_directories <- file.path(package_path, source_directories)
 
-  source_directories <- source_directories[
-    dir.exists(source_directories)
-  ]
+  source_directories <- source_directories[dir.exists(source_directories)]
 
   if (length(source_directories) == 0L) {
-    stop(
-      "None of the requested source directories exists.",
-      call. = FALSE
-    )
+    stop("None of the requested source directories exists.",
+         call. = FALSE)
   }
 
   source_files <- unlist(
@@ -406,18 +411,7 @@ extract_condition_hierarchy <- function(
     )
   }
 
-  bind_rows <- function(rows, empty_result) {
-    if (length(rows) == 0L) {
-      return(empty_result)
-    }
-
-    row.names(do.call(rbind, rows)) <- NULL
-    do.call(rbind, rows)
-  }
-
-  base_only_conditions <- if (
-    length(base_only_condition_rows) == 0L
-  ) {
+  base_only_conditions <- if (length(base_only_condition_rows) == 0L) {
     data.frame(
       condition_type = character(),
       base_class = character(),
@@ -428,23 +422,20 @@ extract_condition_hierarchy <- function(
       stringsAsFactors = FALSE
     )
   } else {
-    unique(do.call(
-      rbind,
-      base_only_condition_rows
-    ))
+    unique(bind_rows(base_only_condition_rows))
   }
 
 
   occurrences <- if (length(occurrence_rows) == 0L) {
     empty_occurrences()
   } else {
-    do.call(rbind, occurrence_rows)
+    bind_rows(occurrence_rows)
   }
 
   edges <- if (length(edge_rows) == 0L) {
     empty_edges()
   } else {
-    unique(do.call(rbind, edge_rows))
+    unique(bind_rows(edge_rows))
   }
 
   dynamic_definitions <- if (length(dynamic_rows) == 0L) {
@@ -457,7 +448,7 @@ extract_condition_hierarchy <- function(
       stringsAsFactors = FALSE
     )
   } else {
-    do.call(rbind, dynamic_rows)
+    bind_rows(dynamic_rows)
   }
 
   parse_errors <- if (length(parse_error_rows) == 0L) {
@@ -467,14 +458,8 @@ extract_condition_hierarchy <- function(
       stringsAsFactors = FALSE
     )
   } else {
-    do.call(rbind, parse_error_rows)
+    bind_rows(parse_error_rows)
   }
-
-  row.names(occurrences) <- NULL
-  row.names(edges) <- NULL
-  row.names(dynamic_definitions) <- NULL
-  row.names(parse_errors) <- NULL
-  row.names(base_only_conditions) <- NULL
 
   # A class normally has one direct parent. Multiple parents may indicate
   # either a typo or an inconsistent hierarchy.
@@ -486,13 +471,11 @@ extract_condition_hierarchy <- function(
     ]
   )
 
-  inconsistent_parents <- edges[
-    edges$child %in% inconsistent_classes,
-    ,
-    drop = FALSE
-  ]
+  inconsistent_parents <- edges[edges$child %in% inconsistent_classes,
+                                ,
+                                drop = FALSE]
 
-  list(
+  result = list(
     edges = edges,
     occurrences = occurrences,
     inconsistent_parents = inconsistent_parents,
@@ -500,31 +483,28 @@ extract_condition_hierarchy <- function(
     parse_errors = parse_errors,
     base_only_conditions = base_only_conditions
   )
+
+  return (result)
 }
 
 
 #' @export
 format_all_edges <- function(edges) {
-  unique_edges <- unique(
-    edges[c("child", "parent")]
-  )
+  unique_edges <- unique( edges[c("child", "parent")] )
 
-  formatted_edges <- paste(
-    unique_edges$child,
-    "->",
-    unique_edges$parent
-  )
+  formatted_edges <- paste(unique_edges$child, "->", unique_edges$parent)
 
-  paste(formatted_edges, collapse = "\n")
+  result = paste(formatted_edges, collapse = "\n")
+
+  return (result)
 }
 
 
 
-format_class_tree <- function(
-    edges,
-    root = "condition",
-    sort_children = TRUE
-) {
+format_class_tree <- function(edges,
+                              root = "condition",
+                              sort_children = TRUE)
+{
   edges <- unique(edges[c("child", "parent")])
 
   format_node <- function(
@@ -593,10 +573,8 @@ format_class_tree <- function(
   )
 }
 
-find_reachable_classes <- function(
-    edges,
-    root = "condition"
-) {
+find_reachable_classes <- function(edges, root = "condition")
+{
   edges <- unique(edges[c("child", "parent")])
 
   visited <- character()
@@ -619,37 +597,20 @@ find_reachable_classes <- function(
     pending <- c(pending, children)
   }
 
-  visited
+  return (visited)
 }
 
 
 #' @export
-print_condition_tree <- function(
-    edges,
-    root = "condition"
-) {
-  all_classes <- unique(c(
-    edges$child,
-    edges$parent
-  ))
+print_condition_tree <- function(edges, root = "condition")
+{
+  all_classes <- unique(c(edges$child, edges$parent))
 
-  reachable_classes <- find_reachable_classes(
-    edges,
-    root = root
-  )
+  reachable_classes <- find_reachable_classes(edges, root = root)
 
-  disconnected_classes <- setdiff(
-    all_classes,
-    reachable_classes
-  )
+  disconnected_classes <- setdiff(all_classes, reachable_classes )
 
-  cat(
-    format_class_tree(
-      edges,
-      root = root
-    ),
-    "\n"
-  )
+  cat(format_class_tree(edges, root = root), "\n")
 
   if (length(disconnected_classes) > 0L) {
     warning(
