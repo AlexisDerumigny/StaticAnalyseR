@@ -110,6 +110,25 @@ get_named_argument <- function(expr, argument_name) {
 }
 
 
+classify_subclass_argument <- function(expr) {
+  subclass <- get_named_argument(
+    expr,
+    argument_name = "subclass"
+  )
+
+  # The argument is absent, or is a syntactically missing argument:
+  #
+  #   constructor(message = "...")
+  #   constructor(message = "...", subclass = )
+  if (is.null(subclass)) {
+    return("subclass argument is absent")
+  }
+
+  # NULL means that the subclass is not demonstrably empty.
+  return (NULL)
+}
+
+
 walk_expression <- function(expr, callback, file) {
   if (missing(expr)) {
     return(invisible(NULL))
@@ -207,11 +226,13 @@ extract_condition_hierarchy <- function(
   edge_rows <- list()
   dynamic_rows <- list()
   parse_error_rows <- list()
+  base_only_condition_rows <- list()
 
   occurrence_index <- 0L
   edge_index <- 0L
   dynamic_index <- 0L
   parse_error_index <- 0L
+  base_only_condition_index <- 0L
 
   inspect_expression <- function(expr, file) {
     if (!is.call(expr)) {
@@ -220,6 +241,52 @@ extract_condition_hierarchy <- function(
 
     current_call <- get_call_name(expr)
     current_line <- get_expression_line(expr)
+
+    # Detect direct calls to registered base constructors where subclass
+    # is absent or explicitly empty.
+    #
+    # The names of the registered constructors come from
+    # subclass_suffixes. This therefore works for both errors and warnings.
+    if (
+      !is.null(subclass_suffixes) &&
+      !is.na(current_call) &&
+      current_call %in% names(subclass_suffixes)
+    ) {
+      base_only_reason <- classify_subclass_argument(expr)
+
+      if (!is.null(base_only_reason)) {
+        suffix <- subclass_suffixes[[current_call]]
+
+        base_class <- if (length(suffix) > 0L) {
+          suffix[[1L]]
+        } else {
+          NA_character_
+        }
+
+        condition_type <- if ("error" %in% suffix) {
+          "error"
+        } else if ("warning" %in% suffix) {
+          "warning"
+        } else if ("message" %in% suffix) {
+          "message"
+        } else {
+          "condition"
+        }
+
+        base_only_condition_index <<-
+          base_only_condition_index + 1L
+
+        base_only_condition_rows[[base_only_condition_index]] <<- data.frame(
+          condition_type = condition_type,
+          base_class = base_class,
+          call = current_call,
+          file = file,
+          line = current_line,
+          reason = base_only_reason,
+          stringsAsFactors = FALSE
+        )
+      }
+    }
 
     for (argument_name in argument_names) {
       argument <- get_named_argument(expr, argument_name)
@@ -348,6 +415,26 @@ extract_condition_hierarchy <- function(
     do.call(rbind, rows)
   }
 
+  base_only_conditions <- if (
+    length(base_only_condition_rows) == 0L
+  ) {
+    data.frame(
+      condition_type = character(),
+      base_class = character(),
+      call = character(),
+      file = character(),
+      line = integer(),
+      reason = character(),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    unique(do.call(
+      rbind,
+      base_only_condition_rows
+    ))
+  }
+
+
   occurrences <- if (length(occurrence_rows) == 0L) {
     empty_occurrences()
   } else {
@@ -387,6 +474,7 @@ extract_condition_hierarchy <- function(
   row.names(edges) <- NULL
   row.names(dynamic_definitions) <- NULL
   row.names(parse_errors) <- NULL
+  row.names(base_only_conditions) <- NULL
 
   # A class normally has one direct parent. Multiple parents may indicate
   # either a typo or an inconsistent hierarchy.
@@ -409,7 +497,8 @@ extract_condition_hierarchy <- function(
     occurrences = occurrences,
     inconsistent_parents = inconsistent_parents,
     dynamic_definitions = dynamic_definitions,
-    parse_errors = parse_errors
+    parse_errors = parse_errors,
+    base_only_conditions = base_only_conditions
   )
 }
 
@@ -579,17 +668,4 @@ print_condition_tree <- function(
     disconnected = disconnected_classes
   ))
 }
-
-condition_suffixes <- list(
-  UniversalShrink_error_condition_base = c(
-    "UniversalShrinkError",
-    "error",
-    "condition"
-  ),
-  UniversalShrink_warning_condition_base = c(
-    "UniversalShrinkWarning",
-    "warning",
-    "condition"
-  )
-)
 
