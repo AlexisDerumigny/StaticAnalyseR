@@ -23,13 +23,13 @@ hierarchy <- extract_condition_hierarchy(
 )
 
 
-hierarchy$edges
-
-cat(format_all_edges(hierarchy$edges), "\n")
-
-cat("\n\n")
-
-print(hierarchy$base_only_conditions)
+# hierarchy$edges
+#
+# cat(format_all_edges(hierarchy$edges), "\n")
+#
+# cat("\n\n")
+#
+# print(hierarchy$base_only_conditions)
 
 tree_check <- print_condition_tree(
   hierarchy$edges
@@ -56,6 +56,12 @@ print_condition_tree(
 )
 
 condition_suffixes <- list(
+  CondCopulas_error_condition_base = c(
+    "CondCopulasError",
+    "error",
+    "condition"
+  ),
+
   CondCopulas_warning_condition_base = c(
     "CondCopulasWarning",
     "warning",
