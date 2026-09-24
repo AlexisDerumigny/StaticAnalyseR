@@ -414,3 +414,80 @@ test_that("repeated identical relationships are not inconsistent", {
 })
 
 
+test_that("a valid R source file is parsed", {
+  source_file <- tempfile(fileext = ".R")
+
+  writeLines(
+    c(
+      "add <- function(x, y) {",
+      "  x + y",
+      "}"
+    ),
+    source_file
+  )
+
+  result <- parse_source_file(source_file)
+
+  expect_type(result, "list")
+
+  expect_identical(
+    names(result),
+    c("parsed_file", "parse_errors")
+  )
+
+  expect_true(is.expression(result$parsed_file))
+
+  expect_identical(
+    result$parse_errors,
+    empty_parse_errors()
+  )
+})
+
+
+test_that("a syntax error is returned as a parse-error row", {
+  source_file <- tempfile(fileext = ".R")
+
+  writeLines(
+    "broken_function <- function(",
+    source_file
+  )
+
+  result <- parse_source_file(source_file)
+
+  expect_null(result$parsed_file)
+  expect_s3_class(result$parse_errors, "data.frame")
+  expect_equal(nrow(result$parse_errors), 1L)
+
+  expect_identical(
+    result$parse_errors$file,
+    source_file
+  )
+
+  expect_type(
+    result$parse_errors$message,
+    "character"
+  )
+
+  expect_true(
+    nzchar(result$parse_errors$message)
+  )
+})
+
+
+test_that("an empty R source file parses successfully", {
+  source_file <- tempfile(fileext = ".R")
+  file.create(source_file)
+
+  result <- parse_source_file(source_file)
+
+  expect_true(is.expression(result$parsed_file))
+  expect_length(result$parsed_file, 0L)
+
+  expect_identical(
+    result$parse_errors,
+    empty_parse_errors()
+  )
+})
+
+
+

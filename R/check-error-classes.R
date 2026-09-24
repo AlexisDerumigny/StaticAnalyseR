@@ -469,6 +469,39 @@ find_r_source_files <- function(package_path, source_directories)
   return(source_files)
 }
 
+## Source-file parsing ==========================================================
+
+
+# Parse one R source file without evaluating it.
+#
+# Returns the parsed expression and an empty parse-error table when parsing
+# succeeds. If parsing fails, returns NULL as the parsed expression and a
+# one-row parse-error table describing the failure.
+parse_source_file <- function(source_file) {
+  parsed_file <- tryCatch(
+    parse(file = source_file,
+          keep.source = TRUE),
+    error = identity
+  )
+
+  if (inherits(parsed_file, "error")) {
+    return(list(
+      parsed_file = NULL,
+      parse_errors = data.frame(
+        file = source_file,
+        message = conditionMessage(parsed_file),
+        stringsAsFactors = FALSE
+      )
+    ) )
+  }
+
+  result <- list(parsed_file = parsed_file,
+                 parse_errors = empty_parse_errors()
+  )
+
+  return(result)
+}
+
 
 
 # Find source locations of registered condition constructor calls.
@@ -750,25 +783,16 @@ extract_condition_hierarchy <- function(
   # Constructor locations and their consumption counters are reset for every
   # file because parser line and column information is file-specific.
   for (source_file in source_files) {
-    parsed_file <- tryCatch(
-      parse(
-        file = source_file,
-        keep.source = TRUE
-      ),
-      error = identity
-    )
+    parsed <- parse_source_file(source_file)
 
-    if (inherits(parsed_file, "error")) {
+    if (nrow(parsed$parse_errors) > 0L) {
       parse_error_index <- parse_error_index + 1L
-
-      parse_error_rows[[parse_error_index]] <- data.frame(
-        file = source_file,
-        message = conditionMessage(parsed_file),
-        stringsAsFactors = FALSE
-      )
+      parse_error_rows[[parse_error_index]] <- parsed$parse_errors
 
       next
     }
+
+    parsed_file <- parsed$parsed_file
 
     constructor_names <- if (is.null(subclass_suffixes)) {
       character()
