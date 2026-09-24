@@ -414,6 +414,7 @@ extract_condition_hierarchy <- function(
 }
 
 
+#' @export
 format_all_edges <- function(edges) {
   unique_edges <- unique(
     edges[c("child", "parent")]
@@ -533,6 +534,7 @@ find_reachable_classes <- function(
 }
 
 
+#' @export
 print_condition_tree <- function(
     edges,
     root = "condition"
@@ -591,20 +593,3 @@ condition_suffixes <- list(
   )
 )
 
-
-hierarchy <- extract_condition_hierarchy(
-  package_path = here::here(),
-  source_directories = "R",
-  subclass_suffixes = condition_suffixes
-)
-
-
-hierarchy$edges
-
-cat(format_all_edges(hierarchy$edges), "\n")
-
-cat("\n\n")
-
-tree_check <- print_condition_tree(
-  hierarchy$edges
-)
