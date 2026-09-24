@@ -23,6 +23,20 @@ hierarchy <- extract_condition_hierarchy(
 )
 
 
+hierarchy$base_only_conditions[
+  ,
+  c(
+    "condition_type",
+    "base_class",
+    "file",
+    "line",
+    "column",
+    "reason"
+  ),
+  drop = FALSE
+]
+
+
 # hierarchy$edges
 #
 # cat(format_all_edges(hierarchy$edges), "\n")
