@@ -300,3 +300,117 @@ test_that("one class produces no hierarchy edges", {
   expect_identical(result, empty_edges())
 })
 
+
+test_that("empty edges have no inconsistent parents", {
+  result <- find_inconsistent_parents(
+    empty_edges()
+  )
+
+  expect_identical(
+    result,
+    empty_edges()
+  )
+})
+
+
+test_that("a valid hierarchy has no inconsistent parents", {
+  edges <- make_edge_rows(
+    classes = c(
+      "InvalidArgumentError",
+      "PackageError",
+      "error",
+      "condition"
+    ),
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    file = "R/conditions.R",
+    line = 10L
+  )
+
+  result <- find_inconsistent_parents(edges)
+
+  expect_identical(
+    result,
+    empty_edges()
+  )
+})
+
+
+test_that("a class with two distinct parents is inconsistent", {
+  first_edge <- make_edge_rows(
+    classes = c(
+      "InvalidArgumentError",
+      "PackageError"
+    ),
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    file = "R/first.R",
+    line = 10L
+  )
+
+  second_edge <- make_edge_rows(
+    classes = c(
+      "InvalidArgumentError",
+      "AlternativePackageError"
+    ),
+    argument_name = "subclass",
+    call_name = "alternative_error_condition",
+    file = "R/second.R",
+    line = 20L
+  )
+
+  edges <- rbind(
+    first_edge,
+    second_edge
+  )
+
+  result <- find_inconsistent_parents(edges)
+
+  expect_identical(
+    result$child,
+    c(
+      "InvalidArgumentError",
+      "InvalidArgumentError"
+    )
+  )
+
+  expect_identical(
+    result$parent,
+    c(
+      "PackageError",
+      "AlternativePackageError"
+    )
+  )
+})
+
+
+test_that("repeated identical relationships are not inconsistent", {
+  first_edge <- make_edge_rows(
+    classes = c(
+      "InvalidArgumentError",
+      "PackageError"
+    ),
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    file = "R/first.R",
+    line = 10L
+  )
+
+  second_edge <- first_edge
+  second_edge$file <- "R/second.R"
+  second_edge$line <- 20L
+
+  edges <- rbind(
+    first_edge,
+    second_edge
+  )
+
+  result <- find_inconsistent_parents(edges)
+
+  expect_identical(
+    result,
+    empty_edges()
+  )
+})
+
+

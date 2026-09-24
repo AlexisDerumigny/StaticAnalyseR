@@ -196,6 +196,12 @@ walk_expression <- function(expr, callback, file) {
 }
 
 
+# Helpers for `extract_condition_hierarchy()`  =================================
+
+
+## Empty-result constructors ===================================================
+
+
 # Create an empty occurrence table with the expected column types.
 #
 # The returned data frame has the same structure as the occurrence table
@@ -289,6 +295,9 @@ empty_file_analysis <- function() {
     base_only_conditions = empty_base_only_conditions()
   )
 }
+
+
+## Row-building helpers  =======================================================
 
 
 # Remove consecutive duplicate values from a vector.
@@ -390,6 +399,33 @@ make_edge_rows <- function(classes,
 
   return (result)
 }
+
+
+
+## Package-level finalization  =================================================
+
+
+# Find classes associated with multiple direct parents.
+#
+# Returns all hierarchy edges whose child has more than one distinct parent.
+# Repeated occurrences of the same child-parent relationship are not treated
+# as inconsistencies.
+find_inconsistent_parents <- function(edges) {
+  if (nrow(edges) == 0L) {
+    return(empty_edges())
+  }
+
+  parents_by_class <- split(edges$parent, edges$child)
+
+  number_of_parents <- lengths(lapply(parents_by_class, unique))
+
+  inconsistent_classes <- names(number_of_parents[number_of_parents > 1L])
+
+  result <- edges[edges$child %in% inconsistent_classes, , drop = FALSE]
+
+  return(result)
+}
+
 
 # Find source locations of registered condition constructor calls.
 #
@@ -747,30 +783,16 @@ extract_condition_hierarchy <- function(
   parse_errors <- bind_rows(parse_error_rows,
                             empty_result = empty_parse_errors())
 
-  # A class normally has one direct parent. Multiple parents may indicate
-  # either a typo or an inconsistent hierarchy.
-  parents_by_class <- split(edges$parent, edges$child)
-
-  inconsistent_classes <- names(
-    parents_by_class[
-      lengths(lapply(parents_by_class, unique)) > 1L
-    ]
+  analysis <- list(occurrences = occurrences,
+                   edges = edges,
+                   dynamic_definitions = dynamic_definitions,
+                   parse_errors = parse_errors,
+                   base_only_conditions = base_only_conditions
   )
 
-  inconsistent_parents <- edges[edges$child %in% inconsistent_classes,
-                                ,
-                                drop = FALSE]
+  analysis$inconsistent_parents = find_inconsistent_parents(analysis$edges)
 
-  result = list(
-    edges = edges,
-    occurrences = occurrences,
-    inconsistent_parents = inconsistent_parents,
-    dynamic_definitions = dynamic_definitions,
-    parse_errors = parse_errors,
-    base_only_conditions = base_only_conditions
-  )
-
-  return (result)
+  return (analysis)
 }
 
 
