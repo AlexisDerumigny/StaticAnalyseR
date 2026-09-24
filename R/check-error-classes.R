@@ -229,6 +229,67 @@ empty_edges <- function() {
   )
 }
 
+# Create an empty dynamic-definition table with the expected column types.
+#
+# Each non-empty row describes a class or subclass argument that could not be
+# resolved statically without evaluating R code.
+empty_dynamic_definitions <- function() {
+  data.frame(
+    argument = character(),
+    call = character(),
+    file = character(),
+    line = integer(),
+    expression = character(),
+    stringsAsFactors = FALSE
+  )
+}
+
+
+# Create an empty parse-error table with the expected column types.
+#
+# Each non-empty row describes a source file that could not be parsed and
+# records the corresponding parser error message.
+empty_parse_errors <- function() {
+  data.frame(
+    file = character(),
+    message = character(),
+    stringsAsFactors = FALSE
+  )
+}
+
+
+# Create an empty base-only-condition table with the expected column types.
+#
+# Each non-empty row describes a registered condition constructor called
+# without an explicit subclass.
+empty_base_only_conditions <- function() {
+  data.frame(
+    condition_type = character(),
+    base_class = character(),
+    call = character(),
+    file = character(),
+    line = integer(),
+    column = integer(),
+    reason = character(),
+    stringsAsFactors = FALSE
+  )
+}
+
+
+# Create an empty file-analysis result.
+#
+# The returned list contains one consistently typed empty table for each kind
+# of finding produced while analyzing a single source file.
+empty_file_analysis <- function() {
+  list(
+    occurrences = empty_occurrences(),
+    edges = empty_edges(),
+    dynamic_definitions = empty_dynamic_definitions(),
+    parse_errors = empty_parse_errors(),
+    base_only_conditions = empty_base_only_conditions()
+  )
+}
+
 
 # Find source locations of registered condition constructor calls.
 #
@@ -601,56 +662,19 @@ extract_condition_hierarchy <- function(
 
   # Combine the collected rows into consistently structured result tables ======
 
-  base_only_conditions <- if (length(base_only_condition_rows) == 0L) {
-    data.frame(
-      condition_type = character(),
-      base_class = character(),
-      call = character(),
-      file = character(),
-      line = integer(),
-      column = integer(),
-      reason = character(),
-      stringsAsFactors = FALSE
-    )
-  } else {
-    unique(bind_rows(base_only_condition_rows))
-  }
+  base_only_conditions <- unique(
+    bind_rows(base_only_condition_rows,
+              empty_result = empty_base_only_conditions()) )
 
+  occurrences <- bind_rows(occurrence_rows, empty_result = empty_occurrences())
 
-  occurrences <- if (length(occurrence_rows) == 0L) {
-    empty_occurrences()
-  } else {
-    bind_rows(occurrence_rows)
-  }
+  edges <- unique(bind_rows(edge_rows), empty_result = empty_edges())
 
-  edges <- if (length(edge_rows) == 0L) {
-    empty_edges()
-  } else {
-    unique(bind_rows(edge_rows))
-  }
+  dynamic_definitions <- bind_rows(dynamic_rows,
+                                   empty_result = empty_dynamic_definitions())
 
-  dynamic_definitions <- if (length(dynamic_rows) == 0L) {
-    data.frame(
-      argument = character(),
-      call = character(),
-      file = character(),
-      line = integer(),
-      expression = character(),
-      stringsAsFactors = FALSE
-    )
-  } else {
-    bind_rows(dynamic_rows)
-  }
-
-  parse_errors <- if (length(parse_error_rows) == 0L) {
-    data.frame(
-      file = character(),
-      message = character(),
-      stringsAsFactors = FALSE
-    )
-  } else {
-    bind_rows(parse_error_rows)
-  }
+  parse_errors <- bind_rows(parse_error_rows,
+                            empty_result = empty_parse_errors())
 
   # A class normally has one direct parent. Multiple parents may indicate
   # either a typo or an inconsistent hierarchy.
