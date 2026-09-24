@@ -1,9 +1,15 @@
-# Extract the hierarchy of condition classes from the R source files
-# of a package.
+# Static analysis utilities for custom R condition classes.
 #
-# This performs static analysis: package code is parsed but not executed.
+# This file parses the R source files of a package without executing them.
+# It extracts condition class vectors, reconstructs inheritance edges,
+# detects base-only conditions and inconsistent parents, and formats the
+# resulting hierarchy as text or as a tree.
 
 
+# Combine a list of data frames by row.
+#
+# Returns `empty_result` when the input list is empty and removes row names
+# from the combined result.
 bind_rows <- function(rows, empty_result = NULL) {
   if (length(rows) == 0L) {
     return(empty_result)
@@ -16,6 +22,11 @@ bind_rows <- function(rows, empty_result = NULL) {
 }
 
 
+# Extract the function name from a call expression.
+#
+# Handles both ordinary calls, such as `stop()`, and namespace-qualified
+# calls, such as `rlang::abort()`. Returns `NA_character_` for non-calls
+# or unsupported call heads.
 get_call_name <- function(expr) {
   if (!is.call(expr)) {
     return(NA_character_)
@@ -40,18 +51,16 @@ get_call_name <- function(expr) {
     ))
   }
 
-  NA_character_
+  return (NA_character_)
 }
 
 
-# Extract values only when they are statically declared character strings.
+# Extract statically declared character strings from an expression.
 #
-# Supported:
-#   class = "MyError"
-#   class = c("MyError", "error", "condition")
+# Supports individual strings and calls to `c()` containing only character
+# literals. Returns `character()` when the expression is dynamic or cannot
+# be resolved safely without evaluating code.
 #
-# Not supported:
-#   class = make_class_vector(x)
 extract_character_literals <- function(expr) {
   if (is.character(expr)) {
     return(as.character(expr))
@@ -74,10 +83,14 @@ extract_character_literals <- function(expr) {
     return(unlist(values, use.names = FALSE))
   }
 
-  character()
+  return (character())
 }
 
 
+# Retrieve the source line attached to a parsed expression.
+#
+# Returns the first line recorded in the expression's `srcref` attribute,
+# or `NA_integer_` when no source reference is available.
 get_expression_line <- function(expr) {
   source_reference <- attr(expr, "srcref")
 
@@ -94,6 +107,11 @@ is_missing_argument <- function(x) {
 }
 
 
+# Extract a named argument from a call expression.
+#
+# Returns the unevaluated argument expression, or `NULL` when the input is
+# not a call, the argument is absent, or the argument is syntactically
+# missing.
 get_named_argument <- function(expr, argument_name) {
   if (!is.call(expr)) {
     return(NULL)
@@ -122,6 +140,10 @@ get_named_argument <- function(expr, argument_name) {
 }
 
 
+# Determine whether a constructor call has no explicit subclass.
+#
+# Returns a descriptive character string when `subclass` is absent or
+# syntactically missing. Returns `NULL` when a subclass argument is present.
 classify_subclass_argument <- function(expr) {
   subclass <- get_named_argument(
     expr,
@@ -141,6 +163,10 @@ classify_subclass_argument <- function(expr) {
 }
 
 
+# Recursively traverse a parsed R expression.
+#
+# Calls `callback` on the current expression and all nested calls,
+# expression vectors, and pairlists. Missing arguments are skipped safely.
 walk_expression <- function(expr, callback, file) {
   if (missing(expr)) {
     return(invisible(NULL))
@@ -170,6 +196,10 @@ walk_expression <- function(expr, callback, file) {
 }
 
 
+# Create an empty occurrence table with the expected column types.
+#
+# The returned data frame has the same structure as the occurrence table
+# produced by `extract_condition_hierarchy()`.
 empty_occurrences <- function() {
   data.frame(
     class = character(),
@@ -183,6 +213,10 @@ empty_occurrences <- function() {
 }
 
 
+# Create an empty hierarchy-edge table with the expected column types.
+#
+# Each non-empty row of this table represents a direct child-parent
+# relationship between two condition classes.
 empty_edges <- function() {
   data.frame(
     child = character(),
@@ -196,6 +230,70 @@ empty_edges <- function() {
 }
 
 
+# Find source locations of registered condition constructor calls.
+#
+# Uses the parser token table to locate calls whose names occur in
+# `constructor_names`. Returns their function names, lines, and columns
+# in source order.
+get_constructor_locations <- function(
+    parsed_file,
+    constructor_names
+) {
+  parse_data <- getParseData(parsed_file, includeText = TRUE)
+
+  if (is.null(parse_data) || nrow(parse_data) == 0) {
+    return(data.frame(call = character(),
+                      line = integer(),
+                      column = integer(),
+                      stringsAsFactors = FALSE) )
+  }
+
+  locations <- parse_data[parse_data$token == "SYMBOL_FUNCTION_CALL" &
+                            parse_data$text %in% constructor_names,
+                          c("text", "line1", "col1")
+  ]
+
+  names(locations) <- c("call", "line", "column")
+
+  locations <- locations[order(locations$line, locations$column), ,drop = FALSE]
+
+  row.names(locations) <- NULL
+
+  return (locations)
+}
+
+
+#' Extract a condition class hierarchy from package source files
+#'
+#' Parse R source files without executing them and extract class vectors
+#' supplied through `class` and `subclass` arguments. The function constructs
+#' direct child-parent relationships, records class occurrences, identifies
+#' classes with inconsistent parents, and reports registered constructors
+#' called without an explicit subclass.
+#'
+#' @param package_path Path to the root directory of the package.
+#'
+#' @param source_directories Character vector of source directories, relative
+#' to `package_path`, that should be scanned.
+#'
+#' @param argument_names Character vector containing the argument names from
+#' which condition classes should be extracted.
+#'
+#' @param subclass_suffixes Named list mapping constructor names to the fixed
+#' class suffix appended to their `subclass` argument.
+#'
+#' @return A named list containing:
+#' \describe{
+#'   \item{edges}{Direct child-parent class relationships.}
+#'   \item{occurrences}{Every statically detected condition class occurrence.}
+#'   \item{inconsistent_parents}{Classes associated with multiple parents.}
+#'   \item{dynamic_definitions}{Class expressions that could not be evaluated
+#'     statically.}
+#'   \item{parse_errors}{Source files that could not be parsed.}
+#'   \item{base_only_conditions}{Registered base constructors called without
+#'     an explicit subclass.}
+#' }
+#'
 #' @export
 extract_condition_hierarchy <- function(
     package_path = ".",
@@ -227,6 +325,15 @@ extract_condition_hierarchy <- function(
     stop("No R source files were found.", call. = FALSE)
   }
 
+  current_constructor_locations <- data.frame(
+    call = character(),
+    line = integer(),
+    column = integer(),
+    stringsAsFactors = FALSE
+  )
+
+  next_constructor_location <- list()
+
   occurrence_rows <- list()
   edge_rows <- list()
   dynamic_rows <- list()
@@ -239,13 +346,76 @@ extract_condition_hierarchy <- function(
   parse_error_index <- 0L
   base_only_condition_index <- 0L
 
+  # Return the next unused source location for a constructor call.
+  #
+  # A separate position is maintained for each constructor name because the
+  # same constructor can occur several times in one source file.
+  consume_constructor_location <- function(call_name) {
+    if (
+      is.na(call_name) ||
+      nrow(current_constructor_locations) == 0L
+    ) {
+      return(list(
+        line = NA_integer_,
+        column = NA_integer_
+      ))
+    }
+
+    current_index <- next_constructor_location[[call_name]]
+
+    if (is.null(current_index)) {
+      current_index <- 1L
+    }
+
+    matching_rows <- which(
+      current_constructor_locations$call == call_name
+    )
+
+    if (current_index > length(matching_rows)) {
+      return(list(
+        line = NA_integer_,
+        column = NA_integer_
+      ))
+    }
+
+    row_index <- matching_rows[[current_index]]
+
+    next_constructor_location[[call_name]] <<-
+      current_index + 1L
+
+    list(
+      line = current_constructor_locations$line[[row_index]],
+      column = current_constructor_locations$column[[row_index]]
+    )
+  }
+
+
+  # Inspect one parsed expression for condition class information.
+  #
+  # Registered constructors are checked for base-only conditions, while
+  # literal `class` and `subclass` vectors are converted into occurrences
+  # and direct hierarchy edges.
   inspect_expression <- function(expr, file) {
     if (!is.call(expr)) {
       return(invisible(NULL))
     }
 
     current_call <- get_call_name(expr)
+
     current_line <- get_expression_line(expr)
+    current_column <- NA_integer_
+
+    # Nested calls frequently do not have an srcref. For registered
+    # condition constructors, obtain the location from getParseData().
+    if (!is.null(subclass_suffixes) &&
+        !is.na(current_call) &&
+        current_call %in% names(subclass_suffixes)
+    ) {
+      constructor_location <- consume_constructor_location(current_call)
+
+      current_line <- constructor_location$line
+      current_column <- constructor_location$column
+    }
 
     # Detect direct calls to registered base constructors where subclass
     # is absent or explicitly empty.
@@ -287,6 +457,7 @@ extract_condition_hierarchy <- function(
           call = current_call,
           file = file,
           line = current_line,
+          column = current_column,
           reason = base_only_reason,
           stringsAsFactors = FALSE
         )
@@ -383,6 +554,10 @@ extract_condition_hierarchy <- function(
     invisible(NULL)
   }
 
+  # Parse and inspect each source file independently.
+  #
+  # Constructor locations and their consumption counters are reset for every
+  # file because parser line and column information is file-specific.
   for (source_file in source_files) {
     parsed_file <- tryCatch(
       parse(
@@ -404,12 +579,27 @@ extract_condition_hierarchy <- function(
       next
     }
 
+    constructor_names <- if (is.null(subclass_suffixes)) {
+      character()
+    } else {
+      names(subclass_suffixes)
+    }
+
+    current_constructor_locations <- get_constructor_locations(
+      parsed_file = parsed_file,
+      constructor_names = constructor_names
+    )
+
+    next_constructor_location <- list()
+
     walk_expression(
       parsed_file,
       callback = inspect_expression,
       file = source_file
     )
   }
+
+  # Combine the collected rows into consistently structured result tables ======
 
   base_only_conditions <- if (length(base_only_condition_rows) == 0L) {
     data.frame(
@@ -418,6 +608,7 @@ extract_condition_hierarchy <- function(
       call = character(),
       file = character(),
       line = integer(),
+      column = integer(),
       reason = character(),
       stringsAsFactors = FALSE
     )
@@ -488,6 +679,15 @@ extract_condition_hierarchy <- function(
 }
 
 
+#' Format condition hierarchy edges
+#'
+#' Convert each unique child-parent relationship into a string of the form
+#' `"ChildClass -> ParentClass"`.
+#'
+#' @param edges A data frame containing `child` and `parent` columns.
+#'
+#' @return A single character string containing one relationship per line.
+#'
 #' @export
 format_all_edges <- function(edges) {
   unique_edges <- unique( edges[c("child", "parent")] )
@@ -500,13 +700,27 @@ format_all_edges <- function(edges) {
 }
 
 
-
+#' Format a condition class hierarchy as a tree
+#'
+#' Traverse condition classes from a root class toward their subclasses and
+#' format the hierarchy using indented tree connectors. Cycles are detected
+#' and marked in the output.
+#'
+#' @param edges A data frame containing `child` and `parent` columns.
+#' @param root Name of the class used as the tree root.
+#' @param sort_children Whether sibling classes should be sorted
+#'   alphabetically.
+#'
+#' @return A single character string containing the formatted hierarchy.
+#'
+#' @keywords internal
 format_class_tree <- function(edges,
                               root = "condition",
                               sort_children = TRUE)
 {
   edges <- unique(edges[c("child", "parent")])
 
+  # Recursively format one node and all of its descendant classes.
   format_node <- function(
     node,
     prefix = "",
@@ -573,6 +787,12 @@ format_class_tree <- function(edges,
   )
 }
 
+
+# Find all condition classes reachable from a root class.
+#
+# Traverses child-parent edges from the root toward its descendants and
+# returns each reachable class once. This is used to detect disconnected
+# hierarchy branches.
 find_reachable_classes <- function(edges, root = "condition")
 {
   edges <- unique(edges[c("child", "parent")])
@@ -601,6 +821,19 @@ find_reachable_classes <- function(edges, root = "condition")
 }
 
 
+#' Print a condition class hierarchy
+#'
+#' Print an indented class tree beginning at a specified root and warn when
+#' condition classes are not connected to that root.
+#'
+#' @param edges A data frame containing `child` and `parent` columns.
+#' @param root Name of the root condition class. The default is
+#'   `"condition"`.
+#'
+#' @return Invisibly returns a list with two character vectors:
+#'   `reachable`, containing classes connected to the root, and
+#'   `disconnected`, containing classes outside the printed tree.
+#'
 #' @export
 print_condition_tree <- function(edges, root = "condition")
 {
