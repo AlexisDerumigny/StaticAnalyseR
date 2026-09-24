@@ -86,3 +86,217 @@ test_that("empty file analysis contains all expected result tables", {
   expect_true(all(vapply(result, nrow, integer(1L)) == 0L))
 })
 
+
+
+test_that("consecutive duplicate classes are removed", {
+  classes <- c(
+    "SpecificError",
+    "SpecificError",
+    "PackageError",
+    "error",
+    "condition"
+  )
+
+  result <- remove_consecutive_duplicates(classes)
+
+  expect_identical(
+    result,
+    c(
+      "SpecificError",
+      "PackageError",
+      "error",
+      "condition"
+    )
+  )
+})
+
+
+test_that("non-consecutive duplicate classes are retained", {
+  classes <- c(
+    "SpecificError",
+    "PackageError",
+    "SpecificError"
+  )
+
+  result <- remove_consecutive_duplicates(classes)
+
+  expect_identical(result, classes)
+})
+
+
+test_that("duplicate removal handles short vectors", {
+  expect_identical(
+    remove_consecutive_duplicates(character()),
+    character()
+  )
+
+  expect_identical(
+    remove_consecutive_duplicates("SpecificError"),
+    "SpecificError"
+  )
+})
+
+
+test_that("subclass vectors receive the registered suffix", {
+  suffixes <- list(
+    package_error_condition = c(
+      "PackageError",
+      "error",
+      "condition"
+    )
+  )
+
+  result <- expand_condition_classes(
+    classes = "InvalidArgumentError",
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    subclass_suffixes = suffixes
+  )
+
+  expect_identical(
+    result,
+    c(
+      "InvalidArgumentError",
+      "PackageError",
+      "error",
+      "condition"
+    )
+  )
+})
+
+
+test_that("class arguments do not receive a subclass suffix", {
+  suffixes <- list(
+    package_error_condition = c(
+      "PackageError",
+      "error",
+      "condition"
+    )
+  )
+
+  result <- expand_condition_classes(
+    classes = c("CustomCondition", "condition"),
+    argument_name = "class",
+    call_name = "package_error_condition",
+    subclass_suffixes = suffixes
+  )
+
+  expect_identical(
+    result,
+    c("CustomCondition", "condition")
+  )
+})
+
+
+test_that("duplicate classes at suffix boundary are removed", {
+  suffixes <- list(
+    package_error_condition = c(
+      "PackageError",
+      "error",
+      "condition"
+    )
+  )
+
+  result <- expand_condition_classes(
+    classes = c(
+      "InvalidArgumentError",
+      "PackageError"
+    ),
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    subclass_suffixes = suffixes
+  )
+
+  expect_identical(
+    result,
+    c(
+      "InvalidArgumentError",
+      "PackageError",
+      "error",
+      "condition"
+    )
+  )
+})
+
+
+test_that("one occurrence row is created per class", {
+  result <- make_occurrence_rows(
+    classes = c(
+      "InvalidArgumentError",
+      "PackageError",
+      "error",
+      "condition"
+    ),
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    file = "R/conditions.R",
+    line = 42L
+  )
+
+  expect_identical(
+    result$class,
+    c(
+      "InvalidArgumentError",
+      "PackageError",
+      "error",
+      "condition"
+    )
+  )
+
+  expect_identical(result$position, 1:4)
+  expect_true(all(result$argument == "subclass"))
+  expect_true(all(result$call == "package_error_condition"))
+  expect_true(all(result$file == "R/conditions.R"))
+  expect_true(all(result$line == 42L))
+})
+
+
+test_that("adjacent classes are converted into hierarchy edges", {
+  result <- make_edge_rows(
+    classes = c(
+      "InvalidArgumentError",
+      "PackageError",
+      "error",
+      "condition"
+    ),
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    file = "R/conditions.R",
+    line = 42L
+  )
+
+  expect_identical(
+    result$child,
+    c(
+      "InvalidArgumentError",
+      "PackageError",
+      "error"
+    )
+  )
+
+  expect_identical(
+    result$parent,
+    c(
+      "PackageError",
+      "error",
+      "condition"
+    )
+  )
+
+  expect_true(all(result$source == "subclass"))
+  expect_true(all(result$line == 42L))
+})
+
+
+test_that("one class produces no hierarchy edges", {
+  result <- make_edge_rows(
+    classes = "condition",
+    argument_name = "class",
+    call_name = "structure",
+    file = "R/conditions.R",
+    line = 42L
+  )
+
+  expect_identical(result, empty_edges())
+})
+

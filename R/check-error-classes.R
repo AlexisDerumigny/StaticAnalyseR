@@ -291,6 +291,106 @@ empty_file_analysis <- function() {
 }
 
 
+# Remove consecutive duplicate values from a vector.
+#
+# Non-consecutive duplicates are retained because they may describe separate
+# positions in a declared condition hierarchy.
+remove_consecutive_duplicates <- function(x) {
+  if (length(x) <= 1L) {
+    return(x)
+  }
+
+  keep <- c(
+    TRUE,
+    x[-1L] != x[-length(x)]
+  )
+
+  result = x[keep]
+  return (result)
+}
+
+# Expand a statically extracted condition class vector.
+#
+# When the argument is `subclass` and the current call is a registered
+# constructor, append the constructor's known fixed class suffix. Consecutive
+# duplicates introduced at the boundary are then removed.
+expand_condition_classes <- function(classes,
+                                     argument_name,
+                                     call_name,
+                                     subclass_suffixes
+) {
+  full_classes <- classes
+
+  if (identical(argument_name, "subclass") && !is.null(subclass_suffixes))
+  {
+    matching_suffix <- subclass_suffixes[[call_name]]
+
+    if (!is.null(matching_suffix)) {
+      full_classes <- c(
+        full_classes,
+        matching_suffix
+      )
+    }
+  }
+
+  result = remove_consecutive_duplicates(full_classes)
+  return (result)
+}
+
+
+# Create one occurrence row for each class in a condition class vector.
+make_occurrence_rows <- function(classes,
+                                 argument_name,
+                                 call_name,
+                                 file,
+                                 line
+) {
+  if (length(classes) == 0L) {
+    return(empty_occurrences())
+  }
+
+  result = data.frame(class = classes,
+                      position = seq_along(classes),
+                      argument = rep(argument_name, length(classes)),
+                      call = rep(call_name, length(classes)),
+                      file = rep(file, length(classes)),
+                      line = rep(line, length(classes)),
+                      stringsAsFactors = FALSE
+  )
+
+  return (result)
+}
+
+
+# Create direct child-parent edges from a condition class vector.
+#
+# For a class vector c("A", "B", "C"), the resulting edges are A -> B and
+# B -> C.
+make_edge_rows <- function(classes,
+                           argument_name,
+                           call_name,
+                           file,
+                           line
+) {
+  if (length(classes) < 2L) {
+    return(empty_edges())
+  }
+
+  number_of_edges <- length(classes) - 1L
+  positions <- seq_len(number_of_edges)
+
+  result = data.frame(child = classes[positions],
+                      parent = classes[positions + 1L],
+                      source = rep(argument_name, number_of_edges),
+                      call = rep(call_name, number_of_edges),
+                      file = rep(file, number_of_edges),
+                      line = rep(line, number_of_edges),
+                      stringsAsFactors = FALSE
+  )
+
+  return (result)
+}
+
 # Find source locations of registered condition constructor calls.
 #
 # Uses the parser token table to locate calls whose names occur in
@@ -554,61 +654,32 @@ extract_condition_hierarchy <- function(
 
       # If subclass is passed to a base constructor, append the
       # known base hierarchy.
-      full_classes <- classes
+      full_classes <- expand_condition_classes(
+        classes = classes,
+        argument_name = argument_name,
+        call_name = current_call,
+        subclass_suffixes = subclass_suffixes
+      )
 
-      if (
-        identical(argument_name, "subclass") &&
-        !is.null(subclass_suffixes)
-      ) {
-        matching_suffix <- subclass_suffixes[[current_call]]
+      occurrence_index <<- occurrence_index + 1L
 
-        if (!is.null(matching_suffix)) {
-          full_classes <- c(
-            full_classes,
-            matching_suffix
-          )
-        }
-      }
+      occurrence_rows[[occurrence_index]] <<- make_occurrence_rows(
+        classes = full_classes,
+        argument_name = argument_name,
+        call_name = current_call,
+        file = file,
+        line = current_line
+      )
 
-      # Remove only consecutive duplicates.
-      if (length(full_classes) > 1L) {
-        keep <- c(
-          TRUE,
-          full_classes[-1L] !=
-            full_classes[-length(full_classes)]
-        )
+      new_edges <- make_edge_rows(classes = full_classes,
+                                  argument_name = argument_name,
+                                  call_name = current_call,
+                                  file = file,
+                                  line = current_line)
 
-        full_classes <- full_classes[keep]
-      }
-
-      for (position in seq_along(full_classes)) {
-        occurrence_index <<- occurrence_index + 1L
-
-        occurrence_rows[[occurrence_index]] <<- data.frame(
-          class = full_classes[[position]],
-          position = position,
-          argument = argument_name,
-          call = current_call,
-          file = file,
-          line = current_line,
-          stringsAsFactors = FALSE
-        )
-      }
-
-      if (length(full_classes) >= 2L) {
-        for (position in seq_len(length(full_classes) - 1L)) {
-          edge_index <<- edge_index + 1L
-
-          edge_rows[[edge_index]] <<- data.frame(
-            child = full_classes[[position]],
-            parent = full_classes[[position + 1L]],
-            source = argument_name,
-            call = current_call,
-            file = file,
-            line = current_line,
-            stringsAsFactors = FALSE
-          )
-        }
+      if (nrow(new_edges) > 0L) {
+        edge_index <<- edge_index + 1L
+        edge_rows[[edge_index]] <<- new_edges
       }
     }
 
