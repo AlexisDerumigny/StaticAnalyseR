@@ -668,7 +668,7 @@ extract_condition_hierarchy <- function(
 
   occurrences <- bind_rows(occurrence_rows, empty_result = empty_occurrences())
 
-  edges <- unique(bind_rows(edge_rows), empty_result = empty_edges())
+  edges <- unique(bind_rows(edge_rows, empty_result = empty_edges()) )
 
   dynamic_definitions <- bind_rows(dynamic_rows,
                                    empty_result = empty_dynamic_definitions())
