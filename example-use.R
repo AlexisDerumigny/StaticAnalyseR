@@ -26,27 +26,15 @@ system.time({
 })
 
 
-hierarchy$base_only_conditions[
-  ,
-  c(
-    "condition_type",
-    "base_class",
-    "file",
-    "line",
-    "column",
-    "reason"
-  ),
-  drop = FALSE
-]
-
 
 # hierarchy$edges
 #
-# cat(format_all_edges(hierarchy$edges), "\n")
+# print(hierarchy, type = "edges")
 #
 # cat("\n\n")
 #
-# print(hierarchy$base_only_conditions)
+
+print(hierarchy, type = "base_only_conditions")
 
 print(hierarchy, type = "tree")
 

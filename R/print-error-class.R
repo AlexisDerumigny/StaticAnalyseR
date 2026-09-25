@@ -161,7 +161,8 @@ find_reachable_classes <- function(edges, root = "condition")
 #' @export
 print.condition_hierarchy <- function(x, type = "tree", root = "condition", ...)
 {
-  type <- match.arg(type, choices = "tree")
+  type <- match.arg(type,
+                    choices = c("tree", "edges", "base_only_conditions"))
 
   if (type == "tree")
   {
@@ -185,6 +186,23 @@ print.condition_hierarchy <- function(x, type = "tree", root = "condition", ...)
         call. = FALSE
       )
     }
+  } else if (type == "edges")
+  {
+    cat(format_all_edges(x$edges), "\n")
+  } else if (type == "base_only_conditions")
+  {
+    print(hierarchy$base_only_conditions[
+      ,
+      c(
+        "condition_type",
+        "base_class",
+        "file",
+        "line",
+        "column",
+        "reason"
+      ),
+      drop = FALSE
+    ] )
   }
 
   invisible(x)
