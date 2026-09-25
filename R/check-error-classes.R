@@ -403,46 +403,29 @@ make_edge_rows <- function(classes,
 
 # Analyze one class-related argument of a condition call.
 #
-# Returns occurrences and hierarchy edges when the argument contains statically
-# identifiable character literals. Otherwise, records the argument as a
-# dynamic definition. An absent argument produces empty result tables.
-#
-# @return a list of the form:
-# list(occurrences = <data.frame>,
-#      edges = <data.frame>,
-#      dynamic_definitions = <data.frame>)
-#
-analyze_condition_argument <- function(expr,
+# Returns a list containing occurrence, edge, or dynamic-definition rows. Result
+# components without findings are NULL to avoid repeatedly constructing empty
+# data frames during AST traversal.
+analyze_condition_argument <- function(argument,
                                        argument_name,
                                        call_name,
                                        file,
                                        line,
-                                       subclass_suffixes
-) {
-  argument <- get_named_argument(expr, argument_name)
-
-  if (is.null(argument)) {
-    return(list(occurrences = empty_occurrences(),
-                edges = empty_edges(),
-                dynamic_definitions = empty_dynamic_definitions()
-    ))
-  }
-
+                                       subclass_suffixes)
+{
   classes <- extract_character_literals(argument)
 
   if (length(classes) == 0L) {
-    dynamic_definition <- data.frame(
-      argument = argument_name,
-      call = call_name,
-      file = file,
-      line = line,
-      expression = paste(deparse(argument), collapse = " ")
-    )
-
-    return(list(occurrences = empty_occurrences(),
-                edges = empty_edges(),
-                dynamic_definitions = dynamic_definition
-    ))
+    return(list(
+      occurrences = NULL,
+      edges = NULL,
+      dynamic_definitions = data.frame(
+        argument = argument_name,
+        call = call_name,
+        file = file,
+        line = line,
+        expression = paste(deparse(argument), collapse = " ") )
+    ) )
   }
 
   full_classes <- expand_condition_classes(
@@ -460,14 +443,18 @@ analyze_condition_argument <- function(expr,
       file = file,
       line = line
     ),
-    edges = make_edge_rows(
-      classes = full_classes,
-      argument_name = argument_name,
-      call_name = call_name,
-      file = file,
-      line = line
-    ),
-    dynamic_definitions = empty_dynamic_definitions()
+    edges = if (length(full_classes) >= 2L) {
+      make_edge_rows(
+        classes = full_classes,
+        argument_name = argument_name,
+        call_name = call_name,
+        file = file,
+        line = line
+      )
+    } else {
+      NULL
+    },
+    dynamic_definitions = NULL
   )
 
   return(result)
@@ -778,9 +765,14 @@ extract_condition_hierarchy <- function(
       }
     }
 
-    for (argument_name in argument_names) {
+    for (argument_name in argument_names)
+    {
+      argument <- get_named_argument(expr, argument_name)
+
+      if (is.null(argument)) { next }
+
       argument_analysis <- analyze_condition_argument(
-        expr = expr,
+        argument = argument,
         argument_name = argument_name,
         call_name = current_call,
         file = file,
@@ -788,17 +780,17 @@ extract_condition_hierarchy <- function(
         subclass_suffixes = subclass_suffixes
       )
 
-      if (nrow(argument_analysis$occurrences) > 0L) {
+      if (!is.null(argument_analysis$occurrences)) {
         occurrence_index <<- occurrence_index + 1L
         occurrence_rows[[occurrence_index]] <<- argument_analysis$occurrences
       }
 
-      if (nrow(argument_analysis$edges) > 0L) {
+      if (!is.null(argument_analysis$edges)) {
         edge_index <<- edge_index + 1L
         edge_rows[[edge_index]] <<- argument_analysis$edges
       }
 
-      if (nrow(argument_analysis$dynamic_definitions) > 0L) {
+      if (!is.null(argument_analysis$dynamic_definitions)) {
         dynamic_index <<- dynamic_index + 1L
         dynamic_rows[[dynamic_index]] <<- argument_analysis$dynamic_definitions
       }

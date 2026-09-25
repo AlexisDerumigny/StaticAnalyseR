@@ -589,34 +589,12 @@ test_that("constructor location cursors have independent state", {
   expect_identical(result$line, 10L)
 })
 
-test_that("an absent condition argument produces no findings", {
-  expr <- quote(condition_constructor(message = "Problem"))
-
-  result <- analyze_condition_argument(
-    expr = expr,
-    argument_name = "subclass",
-    call_name = "condition_constructor",
-    file = "R/conditions.R",
-    line = 10L,
-    subclass_suffixes = NULL
-  )
-
-  expect_identical(result$occurrences, empty_occurrences())
-
-  expect_identical(result$edges, empty_edges())
-
-  expect_identical(result$dynamic_definitions, empty_dynamic_definitions())
-})
 
 test_that("a static class vector produces occurrences and edges", {
-  expr <- quote(
-    structure(list(message = "Problem"),
-      class = c("SpecificError", "PackageError", "error", "condition")
-    )
-  )
+  argument <- quote(c("SpecificError", "PackageError", "error", "condition") )
 
   result <- analyze_condition_argument(
-    expr = expr,
+    argument = argument,
     argument_name = "class",
     call_name = "structure",
     file = "R/conditions.R",
@@ -633,18 +611,17 @@ test_that("a static class vector produces occurrences and edges", {
   expect_identical(result$edges$parent,
                    c("PackageError", "error", "condition") )
 
-  expect_identical(result$dynamic_definitions, empty_dynamic_definitions() )
+  expect_null(result$dynamic_definitions)
 })
 
 test_that("a static subclass receives its constructor suffix", {
-  expr <- quote(package_error_condition(message = "Problem",
-                                        subclass = "SpecificError") )
+  argument <- quote("SpecificError")
 
   suffixes <- list(package_error_condition =
                      c("PackageError", "error", "condition") )
 
   result <- analyze_condition_argument(
-    expr = expr,
+    argument = argument,
     argument_name = "subclass",
     call_name = "package_error_condition",
     file = "R/conditions.R",
@@ -655,16 +632,20 @@ test_that("a static subclass receives its constructor suffix", {
   expect_identical(result$occurrences$class,
                    c("SpecificError", "PackageError", "error", "condition") )
 
+  expect_identical(result$edges$child,
+                   c("SpecificError", "PackageError", "error") )
+
   expect_identical(result$edges$parent,
     c("PackageError", "error", "condition") )
+
+  expect_null(result$dynamic_definitions)
 })
 
 test_that("a dynamic condition argument is recorded", {
-  expr <- quote(package_error_condition(message = "Problem",
-                                        subclass = subclass_name) )
+  argument <- quote(subclass_name)
 
   result <- analyze_condition_argument(
-    expr = expr,
+    argument = argument,
     argument_name = "subclass",
     call_name = "package_error_condition",
     file = "R/conditions.R",
@@ -672,9 +653,9 @@ test_that("a dynamic condition argument is recorded", {
     subclass_suffixes = NULL
   )
 
-  expect_identical(result$occurrences, empty_occurrences() )
+  expect_null(result$occurrences)
 
-  expect_identical(result$edges, empty_edges() )
+  expect_null(result$edges)
 
   expect_equal(nrow(result$dynamic_definitions), 1L)
 
@@ -694,11 +675,10 @@ test_that("a dynamic condition argument is recorded", {
 
 
 test_that("a partially dynamic class vector is recorded as dynamic", {
-  expr <- quote(package_error_condition(
-    subclass = c("SpecificError", computed_class) ) )
+  argument <- quote(c("SpecificError", computed_class) )
 
   result <- analyze_condition_argument(
-    expr = expr,
+    argument = argument,
     argument_name = "subclass",
     call_name = "package_error_condition",
     file = "R/conditions.R",
@@ -706,21 +686,24 @@ test_that("a partially dynamic class vector is recorded as dynamic", {
     subclass_suffixes = NULL
   )
 
-  expect_identical(result$occurrences, empty_occurrences())
+  expect_null(result$occurrences)
+  expect_null(result$edges)
+
+  expect_s3_class(result$dynamic_definitions, "data.frame")
 
   expect_equal(nrow(result$dynamic_definitions), 1L)
 
   expect_match(result$dynamic_definitions$expression,
-               "computed_class",
+               "c(\"SpecificError\", computed_class)",
                fixed = TRUE
   )
 })
 
 test_that("one static class produces no hierarchy edge", {
-  expr <- quote(structure(list(), class = "condition") )
+  argument <- quote("condition")
 
   result <- analyze_condition_argument(
-    expr = expr,
+    argument = argument,
     argument_name = "class",
     call_name = "structure",
     file = "R/conditions.R",
@@ -728,9 +711,16 @@ test_that("one static class produces no hierarchy edge", {
     subclass_suffixes = NULL
   )
 
+  expect_s3_class(result$occurrences,"data.frame")
+
   expect_equal(nrow(result$occurrences), 1L)
 
-  expect_identical(result$edges, empty_edges() )
+  expect_identical(result$occurrences$class,"condition")
+
+  expect_identical(result$occurrences$position,1L)
+
+  expect_null(result$edges)
+  expect_null(result$dynamic_definitions)
 })
 
 
