@@ -490,4 +490,103 @@ test_that("an empty R source file parses successfully", {
 })
 
 
+test_that("constructor locations are consumed in order", {
+  locations <- data.frame(call = c("package_error_condition",
+                                   "package_error_condition"),
+                          line = c(10L, 20L),
+                          column = c(3L, 5L)
+  )
+
+  cursor <- new_constructor_location_cursor(locations)
+
+  first <- cursor$consume("package_error_condition")
+
+  second <- cursor$consume("package_error_condition")
+
+  expect_identical(first, list(line = 10L, column = 3L) )
+
+  expect_identical(second, list(line = 20L, column = 5L) )
+})
+
+
+test_that("constructor positions are maintained separately", {
+  locations <- data.frame(
+    call = c("error_constructor",
+             "warning_constructor",
+             "error_constructor",
+             "warning_constructor"
+    ),
+    line = c(10L, 20L, 30L, 40L),
+    column = c(1L, 2L, 3L, 4L)
+  )
+
+  cursor <- new_constructor_location_cursor(locations)
+
+  first_error <- cursor$consume("error_constructor")
+
+  first_warning <- cursor$consume("warning_constructor")
+
+  second_error <- cursor$consume("error_constructor")
+
+  second_warning <- cursor$consume("warning_constructor")
+
+  expect_identical(first_error$line, 10L)
+  expect_identical(first_warning$line, 20L)
+  expect_identical(second_error$line, 30L)
+  expect_identical(second_warning$line, 40L)
+})
+
+
+test_that("an exhausted cursor returns a missing location", {
+  locations <- data.frame(call = "error_constructor", line = 10L, column = 3L)
+
+  cursor <- new_constructor_location_cursor(locations)
+
+  cursor$consume("error_constructor")
+
+  result <- cursor$consume("error_constructor")
+
+  expect_identical(result, list(line = NA_integer_, column = NA_integer_) )
+})
+
+test_that("an unknown constructor has no source location", {
+  locations <- data.frame(call = "error_constructor", line = 10L, column = 3L)
+
+  cursor <- new_constructor_location_cursor(locations)
+
+  result <- cursor$consume("unknown_constructor")
+
+  expect_identical(result, list(line = NA_integer_, column = NA_integer_) )
+})
+
+test_that("an empty cursor returns missing locations", {
+  locations <- data.frame(call = character(),
+                          line = integer(),
+                          column = integer() )
+
+  cursor <- new_constructor_location_cursor(locations)
+
+  result <- cursor$consume("error_constructor")
+
+  expect_identical(result, list(line = NA_integer_, column = NA_integer_) )
+})
+
+test_that("constructor location cursors have independent state", {
+  locations <- data.frame(call = c("error_constructor", "error_constructor"),
+                          line = c(10L, 20L),
+                          column = c(1L, 2L)
+  )
+
+  first_cursor <- new_constructor_location_cursor(locations)
+
+  second_cursor <- new_constructor_location_cursor(locations)
+
+  first_cursor$consume("error_constructor")
+  first_cursor$consume("error_constructor")
+
+  result <- second_cursor$consume("error_constructor")
+
+  expect_identical(result$line, 10L)
+})
+
 

@@ -537,6 +537,46 @@ get_constructor_locations <- function(
 }
 
 
+# Create a stateful cursor over constructor source locations.
+#
+# The cursor maintains a separate position for each constructor name because
+# the same constructor can occur several times in one source file.
+new_constructor_location_cursor <- function(locations) {
+  next_positions <- new.env(parent = emptyenv())
+
+  consume <- function(call_name)
+  {
+    if (is.na(call_name) || nrow(locations) == 0L) {
+      return(list(line = NA_integer_, column = NA_integer_) )
+    }
+
+    current_position <- next_positions[[call_name]]
+
+    if (is.null(current_position)) {
+      current_position <- 1L
+    }
+
+    matching_rows <- which(locations$call == call_name)
+
+    if (current_position > length(matching_rows)) {
+      return(list(line = NA_integer_, column = NA_integer_) )
+    }
+
+    row_index <- matching_rows[[current_position]]
+
+    next_positions[[call_name]] <- current_position + 1L
+
+    result <- list(line = locations$line[[row_index]],
+                   column = locations$column[[row_index]])
+
+    return(result)
+  }
+
+  return (list(consume = consume) )
+}
+
+
+
 #' Extract a condition class hierarchy from package source files
 #'
 #' Parse R source files without executing them and extract class vectors
@@ -577,15 +617,7 @@ extract_condition_hierarchy <- function(
 {
   source_files <- find_r_source_files(package_path = package_path,
                                       source_directories = source_directories)
-
-  current_constructor_locations <- data.frame(
-    call = character(),
-    line = integer(),
-    column = integer(),
-    stringsAsFactors = FALSE
-  )
-
-  next_constructor_location <- list()
+  location_cursor <- NULL
 
   occurrence_rows <- list()
   edge_rows <- list()
@@ -598,49 +630,6 @@ extract_condition_hierarchy <- function(
   dynamic_index <- 0L
   parse_error_index <- 0L
   base_only_condition_index <- 0L
-
-  # Return the next unused source location for a constructor call.
-  #
-  # A separate position is maintained for each constructor name because the
-  # same constructor can occur several times in one source file.
-  consume_constructor_location <- function(call_name) {
-    if (
-      is.na(call_name) ||
-      nrow(current_constructor_locations) == 0L
-    ) {
-      return(list(
-        line = NA_integer_,
-        column = NA_integer_
-      ))
-    }
-
-    current_index <- next_constructor_location[[call_name]]
-
-    if (is.null(current_index)) {
-      current_index <- 1L
-    }
-
-    matching_rows <- which(
-      current_constructor_locations$call == call_name
-    )
-
-    if (current_index > length(matching_rows)) {
-      return(list(
-        line = NA_integer_,
-        column = NA_integer_
-      ))
-    }
-
-    row_index <- matching_rows[[current_index]]
-
-    next_constructor_location[[call_name]] <<-
-      current_index + 1L
-
-    list(
-      line = current_constructor_locations$line[[row_index]],
-      column = current_constructor_locations$column[[row_index]]
-    )
-  }
 
 
   # Inspect one parsed expression for condition class information.
@@ -664,7 +653,7 @@ extract_condition_hierarchy <- function(
         !is.na(current_call) &&
         current_call %in% names(subclass_suffixes)
     ) {
-      constructor_location <- consume_constructor_location(current_call)
+      constructor_location <- location_cursor$consume(current_call)
 
       current_line <- constructor_location$line
       current_column <- constructor_location$column
@@ -800,12 +789,11 @@ extract_condition_hierarchy <- function(
       names(subclass_suffixes)
     }
 
-    current_constructor_locations <- get_constructor_locations(
+    constructor_locations <- get_constructor_locations(
       parsed_file = parsed_file,
-      constructor_names = constructor_names
-    )
+      constructor_names = constructor_names)
 
-    next_constructor_location <- list()
+    location_cursor <- new_constructor_location_cursor(constructor_locations)
 
     walk_expression(
       parsed_file,
