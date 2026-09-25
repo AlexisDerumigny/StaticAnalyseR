@@ -795,6 +795,12 @@ extract_condition_hierarchy <- function(
   source_files <- find_r_source_files(package_path = package_path,
                                       source_directories = source_directories)
 
+  constructor_names <- if (is.null(subclass_suffixes)) {
+    character()
+  } else {
+    names(subclass_suffixes)
+  }
+
   accumulator <- new_condition_analysis_accumulator()
 
   parse_error_rows <- list()
@@ -816,12 +822,6 @@ extract_condition_hierarchy <- function(
 
     parsed_file <- parsed$parsed_file
 
-    constructor_names <- if (is.null(subclass_suffixes)) {
-      character()
-    } else {
-      names(subclass_suffixes)
-    }
-
     constructor_locations <- get_constructor_locations(
       parsed_file = parsed_file,
       constructor_names = constructor_names)
@@ -839,7 +839,7 @@ extract_condition_hierarchy <- function(
     )
   }
 
-  # Combine the collected rows into consistently structured result tables ======
+  # Combine the collected rows into consistently structured result tables
 
   base_only_conditions <- unique(
     bind_rows(accumulator$base_only_condition_rows,
