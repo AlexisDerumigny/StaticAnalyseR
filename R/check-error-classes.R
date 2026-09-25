@@ -2,8 +2,8 @@
 #
 # This file parses the R source files of a package without executing them.
 # It extracts condition class vectors, reconstructs inheritance edges,
-# detects base-only conditions and inconsistent parents, and formats the
-# resulting hierarchy as text or as a tree.
+# detects base-only conditions, implicit condition signals, and inconsistent
+# parents.
 
 
 # Combine a list of data frames by row.
@@ -255,6 +255,41 @@ empty_base_only_conditions <- function() {
 }
 
 
+# Create an empty implicit-condition-signal table with the expected column types.
+#
+# Each non-empty row describes
+# a call to a recognized condition signaler that implicitly constructs a simple
+# condition from message components
+# instead of receiving a statically recognized condition object.
+empty_implicit_condition_signals <- function() {
+  data.frame(condition_type = character(),
+             implicit_class = character(),
+             call = character(),
+             file = character(),
+             line = integer(),
+             column = integer(),
+             expression = character(),
+             reason = character() )
+}
+
+
+# Create an empty implicit-condition-signal table with the expected column types.
+#
+# Each non-empty row describes a call to a recognized condition signaler that
+# implicitly constructs a simple condition from message components instead of
+# receiving a statically recognized condition object.
+empty_implicit_condition_signals <- function() {
+  data.frame(condition_type = character(),
+             implicit_class = character(),
+             call = character(),
+             file = character(),
+             line = integer(),
+             column = integer(),
+             expression = character(),
+             reason = character() )
+}
+
+
 # Create an empty file-analysis result.
 #
 # The returned list contains one consistently typed empty table for each kind
@@ -265,7 +300,8 @@ empty_file_analysis <- function() {
     edges = empty_edges(),
     dynamic_definitions = empty_dynamic_definitions(),
     parse_errors = empty_parse_errors(),
-    base_only_conditions = empty_base_only_conditions()
+    base_only_conditions = empty_base_only_conditions(),
+    implicit_condition_signals = empty_implicit_condition_signals()
   )
 }
 
@@ -583,6 +619,7 @@ new_condition_analysis_accumulator <- function() {
   accumulator$edge_rows <- list()
   accumulator$dynamic_rows <- list()
   accumulator$base_only_condition_rows <- list()
+  accumulator$implicit_condition_signal_rows <- list()
 
   return(accumulator)
 }
@@ -743,6 +780,9 @@ find_inconsistent_parents <- function(edges) {
 #'   \item{parse_errors}{Source files that could not be parsed.}
 #'   \item{base_only_conditions}{Registered base constructors called without
 #'     an explicit subclass.}
+#'   \item{implicit_condition_signals}{Calls to recognized condition signalers
+#'   that implicitly construct simple conditions from message components
+#'   instead of receiving statically recognized condition objects.}
 #' }
 #'
 #' @export
@@ -805,6 +845,11 @@ extract_condition_hierarchy <- function(
     bind_rows(accumulator$base_only_condition_rows,
               empty_result = empty_base_only_conditions() ) )
 
+  implicit_condition_signals <- bind_rows(
+    accumulator$implicit_condition_signal_rows,
+    empty_result = empty_implicit_condition_signals()
+  )
+
   occurrences <- bind_rows(accumulator$occurrence_rows,
                            empty_result = empty_occurrences() )
 
@@ -820,7 +865,8 @@ extract_condition_hierarchy <- function(
                  edges = edges,
                  dynamic_definitions = dynamic_definitions,
                  parse_errors = parse_errors,
-                 base_only_conditions = base_only_conditions
+                 base_only_conditions = base_only_conditions,
+                 implicit_condition_signals = implicit_condition_signals
   )
 
   result$inconsistent_parents = find_inconsistent_parents(result$edges)

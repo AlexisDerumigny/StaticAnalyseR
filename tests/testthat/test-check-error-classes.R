@@ -78,7 +78,8 @@ test_that("empty file analysis contains all expected result tables", {
       "edges",
       "dynamic_definitions",
       "parse_errors",
-      "base_only_conditions"
+      "base_only_conditions",
+      "implicit_condition_signals"
     )
   )
 
@@ -777,8 +778,8 @@ test_that("irrelevant expressions produce no findings", {
   expect_length(accumulator$occurrence_rows, 0L)
   expect_length(accumulator$edge_rows, 0L)
   expect_length(accumulator$dynamic_rows, 0L)
-
   expect_length(accumulator$base_only_condition_rows, 0L)
+  expect_length(accumulator$implicit_condition_signal_rows, 0L)
 })
 
 test_that("condition expression inspection records dynamic classes", {
@@ -865,5 +866,33 @@ test_that("non-call expressions produce no findings", {
 })
 
 
+
+# Test on  extract_condition_hierarchy  ========================================
+
+test_that("extraction returns an empty implicit condition signal table", {
+  package_path <- tempfile()
+  source_path <- file.path(package_path, "R")
+
+  dir.create(source_path, recursive = TRUE)
+  writeLines(
+    c(
+      "add <- function(x, y) {",
+      "  x + y",
+      "}"
+    ),
+    file.path(source_path, "example.R")
+  )
+
+  result <- extract_condition_hierarchy(
+    package_path = package_path
+  )
+
+  expect_s3_class(result, "condition_hierarchy")
+  expect_true("implicit_condition_signals" %in% names(result))
+  expect_identical(
+    result$implicit_condition_signals,
+    empty_implicit_condition_signals()
+  )
+})
 
 

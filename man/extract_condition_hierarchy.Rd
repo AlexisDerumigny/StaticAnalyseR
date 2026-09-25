@@ -35,6 +35,9 @@ statically.}
 \item{parse_errors}{Source files that could not be parsed.}
 \item{base_only_conditions}{Registered base constructors called without
 an explicit subclass.}
+\item{implicit_condition_signals}{Calls to recognized condition signalers
+that implicitly construct simple conditions from message components
+instead of receiving statically recognized condition objects.}
 }
 }
 \description{
