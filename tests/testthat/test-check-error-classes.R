@@ -1,3 +1,6 @@
+
+# Tests for the helpers  =======================================================
+
 test_that("empty dynamic definitions have the expected structure", {
   result <- empty_dynamic_definitions()
 
@@ -88,6 +91,7 @@ test_that("empty file analysis contains all expected result tables", {
 })
 
 
+# Tests for remove_consecutive_duplicates  =====================================
 
 test_that("consecutive duplicate classes are removed", {
   classes <- c(
@@ -137,6 +141,8 @@ test_that("duplicate removal handles short vectors", {
   )
 })
 
+
+# Tests for expand_condition_classes  ==========================================
 
 test_that("subclass vectors receive the registered suffix", {
   suffixes <- list(
@@ -220,6 +226,8 @@ test_that("duplicate classes at suffix boundary are removed", {
 })
 
 
+# Tests for make_occurrence_rows  ==============================================
+
 test_that("one occurrence row is created per class", {
   result <- make_occurrence_rows(
     classes = c(
@@ -251,6 +259,8 @@ test_that("one occurrence row is created per class", {
   expect_true(all(result$line == 42L))
 })
 
+
+# Tests for make_edge_rows  ====================================================
 
 test_that("adjacent classes are converted into hierarchy edges", {
   result <- make_edge_rows(
@@ -301,6 +311,8 @@ test_that("one class produces no hierarchy edges", {
   expect_identical(result, empty_edges())
 })
 
+
+# Tests for find_inconsistent_parents  =========================================
 
 test_that("empty edges have no inconsistent parents", {
   result <- find_inconsistent_parents(
@@ -415,6 +427,8 @@ test_that("repeated identical relationships are not inconsistent", {
 })
 
 
+# Tests for parse_source_file  =================================================
+
 test_that("a valid R source file is parsed", {
   source_file <- tempfile(fileext = ".R")
 
@@ -490,6 +504,8 @@ test_that("an empty R source file parses successfully", {
   )
 })
 
+
+# Tests for new_call_location_cursor  ==========================================
 
 test_that("call locations are consumed in order", {
   locations <- data.frame(call = c("package_error_condition",
@@ -776,6 +792,8 @@ test_that("one static class produces no hierarchy edge", {
   expect_null(result$dynamic_definitions)
 })
 
+
+# Tests for inspect_condition_expression  ======================================
 
 test_that("condition expression inspection records static classes", {
   expr <- quote(
