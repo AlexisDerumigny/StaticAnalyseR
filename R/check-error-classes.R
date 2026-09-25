@@ -156,6 +156,128 @@ get_named_argument <- function(expr, argument_name)
 }
 
 
+# Extract the arguments used as message components by a condition signaler.
+#
+# Known control arguments, such as call. for stop(), are excluded.
+get_condition_signal_arguments <- function(expr, control_arguments)
+{
+  arguments <- as.list(expr)[-1L]
+
+  if (length(arguments) == 0L) {
+    return(list())
+  }
+
+  argument_names <- names(arguments)
+
+  if (is.null(argument_names)) {
+    return(arguments)
+  }
+
+  is_control_argument <- nzchar(argument_names) &
+    argument_names %in% control_arguments
+
+  return (arguments[!is_control_argument])
+}
+
+# Determine whether an expression calls a registered condition constructor.
+is_registered_condition_constructor <- function(expr, subclass_suffixes)
+{
+  if (!is.call(expr) || is.null(subclass_suffixes)) {
+    return(FALSE)
+  }
+
+  call_name <- get_call_name(expr)
+
+  return ( !is.na(call_name) && call_name %in% names(subclass_suffixes) )
+}
+
+
+# Determine whether an expression visibly constructs a message string.
+is_message_building_call <- function(expr)
+{
+  if (!is.call(expr)) {
+    return(FALSE)
+  }
+
+  call_name <- get_call_name(expr)
+
+  return (!is.na(call_name) && call_name %in% c("paste", "paste0", "sprintf") )
+}
+
+
+# Classify a call to stop() or warning().
+#
+# Returns one of the statuses "implicit", "explicit", or "unknown".
+classify_condition_signal <- function(expr, subclass_suffixes, control_arguments)
+{
+  message_arguments <- get_condition_signal_arguments(
+    expr = expr,
+    control_arguments = control_arguments)
+
+  if (length(message_arguments) == 0L) {
+    return(list(status = "implicit",
+                expression = "",
+                reason = "no explicit condition supplied"
+    ) )
+  }
+
+  if (length(message_arguments) > 1L) {
+    expressions <- vapply(
+      message_arguments,
+      function(argument) {
+        paste(deparse(argument), collapse = " ")
+      },
+      character(1L)
+    )
+
+    return(list(status = "implicit",
+                expression = paste(expressions, collapse = ", "),
+                reason = "multiple message components supplied directly"
+    ) )
+  }
+
+  argument <- message_arguments[[1L]]
+
+  if (is_registered_condition_constructor(argument,
+                                          subclass_suffixes = subclass_suffixes)
+  ) {
+    return(
+      list(
+        status = "explicit",
+        expression = paste(deparse(argument), collapse = " "),
+        reason = "registered condition constructor"
+      )
+    )
+  }
+
+  if (is.character(argument)) {
+    return(
+      list(
+        status = "implicit",
+        expression = paste(deparse(argument), collapse = " "),
+        reason = "character message supplied directly"
+      )
+    )
+  }
+
+  if (is_message_building_call(argument)) {
+    return(
+      list(
+        status = "implicit",
+        expression = paste(deparse(argument), collapse = " "),
+        reason = "message-building expression supplied directly"
+      )
+    )
+  }
+
+  return (list(
+    status = "unknown",
+    expression = paste(deparse(argument), collapse = " "),
+    reason = "expression cannot be resolved statically"
+  ) )
+}
+
+
 # Determine whether a constructor call has no explicit subclass.
 #
 # Returns a descriptive character string when `subclass` is absent or
@@ -175,6 +297,19 @@ classify_subclass_argument <- function(expr)
   # NULL means that the subclass is not demonstrably empty.
   return (NULL)
 }
+
+
+# Describe the condition signalers recognized by the analyzer.
+condition_signalers <- list(
+  stop = list(condition_type = "error",
+              implicit_class = "simpleError",
+              control_arguments = "call."
+  ),
+  warning = list(condition_type = "warning",
+                 implicit_class = "simpleWarning",
+                 control_arguments = c("call.", "immediate.", "noBreaks.") )
+)
+
 
 
 # Empty-result constructors ====================================================
@@ -644,12 +779,44 @@ inspect_condition_expression <- function(
     !is.na(current_call) &&
     current_call %in% names(subclass_suffixes)
 
-  # Nested calls frequently do not have an srcref. For registered condition
-  # constructors, obtain the location from the parser token table.
-  if (is_registered_constructor) {
+  is_condition_signaler <- !is.na(current_call) &&
+    current_call %in% names(condition_signalers)
+
+  # Nested calls frequently do not have an srcref. For registered constructors
+  # and recognized condition signalers, obtain the location from the parser
+  # token table.
+  if (is_registered_constructor || is_condition_signaler) {
     call_location <- location_cursor$consume(current_call)
     current_line <- call_location$line
     current_column <- call_location$column
+  }
+
+  # Detect condition signalers that construct simple conditions implicitly.
+  if (is_condition_signaler) {
+    signaler <- condition_signalers[[current_call]]
+
+    signal_classification <- classify_condition_signal(
+      expr = expr,
+      subclass_suffixes = subclass_suffixes,
+      control_arguments = signaler$control_arguments
+    )
+
+    if (identical(signal_classification$status, "implicit"))
+    {
+      row_index <- length(accumulator$implicit_condition_signal_rows) + 1L
+
+      accumulator$implicit_condition_signal_rows[[row_index]] <-
+        data.frame(
+          condition_type = signaler$condition_type,
+          implicit_class = signaler$implicit_class,
+          call = current_call,
+          file = file,
+          line = current_line,
+          column = current_column,
+          expression = signal_classification$expression,
+          reason = signal_classification$reason
+        )
+    }
   }
 
   # Detect calls to registered base constructors where `subclass` is absent
@@ -801,7 +968,7 @@ extract_condition_hierarchy <- function(
     names(subclass_suffixes)
   }
 
-  condition_signaler_names <- c("stop", "warning")
+  condition_signaler_names <- names(condition_signalers)
 
   located_call_names <- c(constructor_names, condition_signaler_names)
 

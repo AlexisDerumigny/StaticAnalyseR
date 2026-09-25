@@ -793,6 +793,102 @@ test_that("one static class produces no hierarchy edge", {
 })
 
 
+# Tests for classify_condition_signal  =========================================
+
+
+test_that("a character message is an implicit condition signal", {
+  result <- classify_condition_signal(
+    expr = quote(stop("problem")),
+    subclass_suffixes = NULL,
+    control_arguments = "call."
+  )
+
+  expect_identical(result$status, "implicit")
+  expect_identical(result$expression, "\"problem\"")
+  expect_identical(result$reason, "character message supplied directly")
+})
+
+
+test_that("a message-building call is an implicit condition signal", {
+  result <- classify_condition_signal(
+    expr = quote(stop(paste0("problem at ", i))),
+    subclass_suffixes = NULL,
+    control_arguments = "call."
+  )
+
+  expect_identical(result$status, "implicit")
+  expect_identical(result$expression, "paste0(\"problem at \", i)")
+  expect_identical(result$reason, "message-building expression supplied directly")
+})
+
+
+test_that("multiple message components form an implicit condition signal", {
+  result <- classify_condition_signal(
+    expr = quote(stop("problem at ", i)),
+    subclass_suffixes = NULL,
+    control_arguments = "call."
+  )
+
+  expect_identical(result$status, "implicit")
+  expect_identical(result$expression, "\"problem at \", i")
+  expect_identical(result$reason, "multiple message components supplied directly")
+})
+
+test_that("condition signal control arguments are not message components", {
+  result <- classify_condition_signal(
+    expr = quote(stop("problem", call. = FALSE)),
+    subclass_suffixes = NULL,
+    control_arguments = "call."
+  )
+
+  expect_identical(result$status, "implicit")
+  expect_identical(result$expression, "\"problem\"")
+  expect_identical(result$reason, "character message supplied directly")
+})
+
+test_that("a registered constructor forms an explicit condition signal", {
+  suffixes <- list(
+    package_error_condition = c("PackageError", "error", "condition") )
+
+  result <- classify_condition_signal(
+    expr = quote(
+      stop(
+        package_error_condition(message = "problem", subclass = "SpecificError")
+      )
+    ),
+    subclass_suffixes = suffixes,
+    control_arguments = "call."
+  )
+
+  expect_identical(result$status, "explicit")
+  expect_identical(result$reason, "registered condition constructor")
+})
+
+test_that("a symbol forms an unknown condition signal", {
+  result <- classify_condition_signal(
+    expr = quote(stop(condition_object)),
+    subclass_suffixes = NULL,
+    control_arguments = "call."
+  )
+
+  expect_identical(result$status, "unknown")
+  expect_identical(result$expression, "condition_object")
+  expect_identical(result$reason, "expression cannot be resolved statically")
+})
+
+test_that("an unregistered call forms an unknown condition signal", {
+  result <- classify_condition_signal(
+    expr = quote(stop(make_error("problem"))),
+    subclass_suffixes = NULL,
+    control_arguments = "call."
+  )
+
+  expect_identical(result$status, "unknown")
+  expect_identical(result$expression, "make_error(\"problem\")")
+})
+
+
+
 # Tests for inspect_condition_expression  ======================================
 
 test_that("condition expression inspection records static classes", {
@@ -935,6 +1031,119 @@ test_that("non-call expressions produce no findings", {
   expect_length(accumulator$dynamic_rows, 0L)
 })
 
+test_that("implicit stop calls are recorded", {
+  expr <- quote(stop(paste0("problem at ", i)))
+
+  locations <- data.frame(call = "stop", line = 42L, column = 5L)
+
+  accumulator <- new_condition_analysis_accumulator()
+  location_cursor <- new_call_location_cursor(locations)
+
+  inspect_condition_expression(
+    expr = expr,
+    file = "R/example.R",
+    argument_names = c("class", "subclass"),
+    subclass_suffixes = NULL,
+    location_cursor = location_cursor,
+    accumulator = accumulator
+  )
+
+  expect_length(accumulator$implicit_condition_signal_rows, 1L)
+
+  result <- accumulator$implicit_condition_signal_rows[[1L]]
+
+  expect_identical(result$condition_type, "error")
+  expect_identical(result$implicit_class, "simpleError")
+  expect_identical(result$call, "stop")
+  expect_identical(result$line, 42L)
+  expect_identical(result$column, 5L)
+  expect_identical(result$expression, "paste0(\"problem at \", i)")
+})
+
+test_that("implicit warning calls are recorded", {
+  expr <- quote(warning("problem"))
+
+  locations <- data.frame(call = "warning", line = 12L, column = 3L)
+
+  accumulator <- new_condition_analysis_accumulator()
+  location_cursor <- new_call_location_cursor(locations)
+
+  inspect_condition_expression(
+    expr = expr,
+    file = "R/example.R",
+    argument_names = c("class", "subclass"),
+    subclass_suffixes = NULL,
+    location_cursor = location_cursor,
+    accumulator = accumulator
+  )
+
+  result <- accumulator$implicit_condition_signal_rows[[1L]]
+
+  expect_identical(result$condition_type, "warning")
+  expect_identical(result$implicit_class, "simpleWarning")
+  expect_identical(result$call, "warning")
+})
+
+test_that("unknown condition signals are not reported as implicit", {
+  expr <- quote(stop(condition_object))
+
+  locations <- data.frame(
+    call = "stop",
+    line = 12L,
+    column = 3L
+  )
+
+  accumulator <- new_condition_analysis_accumulator()
+  location_cursor <- new_call_location_cursor(locations)
+
+  inspect_condition_expression(
+    expr = expr,
+    file = "R/example.R",
+    argument_names = c("class", "subclass"),
+    subclass_suffixes = NULL,
+    location_cursor = location_cursor,
+    accumulator = accumulator
+  )
+
+  expect_length(accumulator$implicit_condition_signal_rows, 0L)
+})
+
+test_that("explicit condition signals are not reported as implicit", {
+  expr <- quote(
+    stop(
+      package_error_condition(
+        message = "problem",
+        subclass = "SpecificError"
+      )
+    )
+  )
+
+  suffixes <- list(
+    package_error_condition = c("PackageError", "error", "condition")
+  )
+
+  locations <- data.frame(
+    call = c("stop", "package_error_condition"),
+    line = c(12L, 13L),
+    column = c(3L, 5L)
+  )
+
+  accumulator <- new_condition_analysis_accumulator()
+  location_cursor <- new_call_location_cursor(locations)
+
+  inspect_condition_expression(
+    expr = expr,
+    file = "R/example.R",
+    argument_names = c("class", "subclass"),
+    subclass_suffixes = suffixes,
+    location_cursor = location_cursor,
+    accumulator = accumulator
+  )
+
+  expect_length(accumulator$implicit_condition_signal_rows, 0L)
+})
+
+
 
 
 # Test on  extract_condition_hierarchy  ========================================
@@ -963,6 +1172,36 @@ test_that("extraction returns an empty implicit condition signal table", {
     result$implicit_condition_signals,
     empty_implicit_condition_signals()
   )
+})
+
+test_that("extraction reports implicit condition signals", {
+  package_path <- tempfile()
+  source_path <- file.path(package_path, "R")
+
+  dir.create(source_path, recursive = TRUE)
+
+  writeLines(
+    c(
+      "example <- function(i, condition_object) {",
+      "  stop(\"first problem\")",
+      "  warning(paste0(\"problem at \", i))",
+      "  stop(condition_object)",
+      "}"
+    ),
+    file.path(source_path, "example.R")
+  )
+
+  result <- extract_condition_hierarchy(package_path = package_path)
+
+  expect_equal(nrow(result$implicit_condition_signals), 2L)
+
+  expect_identical(result$implicit_condition_signals$condition_type,
+                   c("error", "warning") )
+
+  expect_identical(result$implicit_condition_signals$implicit_class,
+                   c("simpleError", "simpleWarning") )
+
+  expect_identical(result$implicit_condition_signals$line, c(2L, 3L))
 })
 
 

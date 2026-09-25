@@ -38,6 +38,7 @@ print(hierarchy, type = "base_only_conditions")
 
 print(hierarchy, type = "tree")
 
+hierarchy$implicit_condition_signals
 
 condition_suffixes <- list(
   ICM_error_condition_base = c(
