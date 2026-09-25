@@ -16,6 +16,7 @@ condition_suffixes <- list(
   )
 )
 
+
 hierarchy <- extract_condition_hierarchy(
   package_path = paste0(base_path_pckgs,  "UniversalShrink\\UniversalShrink"),
   source_directories = "R",

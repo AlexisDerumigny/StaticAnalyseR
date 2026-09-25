@@ -589,4 +589,149 @@ test_that("constructor location cursors have independent state", {
   expect_identical(result$line, 10L)
 })
 
+test_that("an absent condition argument produces no findings", {
+  expr <- quote(condition_constructor(message = "Problem"))
+
+  result <- analyze_condition_argument(
+    expr = expr,
+    argument_name = "subclass",
+    call_name = "condition_constructor",
+    file = "R/conditions.R",
+    line = 10L,
+    subclass_suffixes = NULL
+  )
+
+  expect_identical(result$occurrences, empty_occurrences())
+
+  expect_identical(result$edges, empty_edges())
+
+  expect_identical(result$dynamic_definitions, empty_dynamic_definitions())
+})
+
+test_that("a static class vector produces occurrences and edges", {
+  expr <- quote(
+    structure(list(message = "Problem"),
+      class = c("SpecificError", "PackageError", "error", "condition")
+    )
+  )
+
+  result <- analyze_condition_argument(
+    expr = expr,
+    argument_name = "class",
+    call_name = "structure",
+    file = "R/conditions.R",
+    line = 10L,
+    subclass_suffixes = NULL)
+
+  expect_identical(
+    result$occurrences$class,
+    c("SpecificError", "PackageError", "error", "condition") )
+
+  expect_identical(result$edges$child,
+                   c("SpecificError", "PackageError", "error") )
+
+  expect_identical(result$edges$parent,
+                   c("PackageError", "error", "condition") )
+
+  expect_identical(result$dynamic_definitions, empty_dynamic_definitions() )
+})
+
+test_that("a static subclass receives its constructor suffix", {
+  expr <- quote(package_error_condition(message = "Problem",
+                                        subclass = "SpecificError") )
+
+  suffixes <- list(package_error_condition =
+                     c("PackageError", "error", "condition") )
+
+  result <- analyze_condition_argument(
+    expr = expr,
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    file = "R/conditions.R",
+    line = 10L,
+    subclass_suffixes = suffixes
+  )
+
+  expect_identical(result$occurrences$class,
+                   c("SpecificError", "PackageError", "error", "condition") )
+
+  expect_identical(result$edges$parent,
+    c("PackageError", "error", "condition") )
+})
+
+test_that("a dynamic condition argument is recorded", {
+  expr <- quote(package_error_condition(message = "Problem",
+                                        subclass = subclass_name) )
+
+  result <- analyze_condition_argument(
+    expr = expr,
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    file = "R/conditions.R",
+    line = 25L,
+    subclass_suffixes = NULL
+  )
+
+  expect_identical(result$occurrences, empty_occurrences() )
+
+  expect_identical(result$edges, empty_edges() )
+
+  expect_equal(nrow(result$dynamic_definitions), 1L)
+
+  expect_identical(
+    result$dynamic_definitions$argument,
+    "subclass"
+  )
+
+  expect_identical(result$dynamic_definitions$call, "package_error_condition")
+
+  expect_identical(result$dynamic_definitions$file, "R/conditions.R")
+
+  expect_identical(result$dynamic_definitions$line, 25L)
+
+  expect_identical(result$dynamic_definitions$expression, "subclass_name")
+})
+
+
+test_that("a partially dynamic class vector is recorded as dynamic", {
+  expr <- quote(package_error_condition(
+    subclass = c("SpecificError", computed_class) ) )
+
+  result <- analyze_condition_argument(
+    expr = expr,
+    argument_name = "subclass",
+    call_name = "package_error_condition",
+    file = "R/conditions.R",
+    line = 30L,
+    subclass_suffixes = NULL
+  )
+
+  expect_identical(result$occurrences, empty_occurrences())
+
+  expect_equal(nrow(result$dynamic_definitions), 1L)
+
+  expect_match(result$dynamic_definitions$expression,
+               "computed_class",
+               fixed = TRUE
+  )
+})
+
+test_that("one static class produces no hierarchy edge", {
+  expr <- quote(structure(list(), class = "condition") )
+
+  result <- analyze_condition_argument(
+    expr = expr,
+    argument_name = "class",
+    call_name = "structure",
+    file = "R/conditions.R",
+    line = 10L,
+    subclass_suffixes = NULL
+  )
+
+  expect_equal(nrow(result$occurrences), 1L)
+
+  expect_identical(result$edges, empty_edges() )
+})
+
+
 

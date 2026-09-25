@@ -401,6 +401,78 @@ make_edge_rows <- function(classes,
 }
 
 
+# Analyze one class-related argument of a condition call.
+#
+# Returns occurrences and hierarchy edges when the argument contains statically
+# identifiable character literals. Otherwise, records the argument as a
+# dynamic definition. An absent argument produces empty result tables.
+#
+# @return a list of the form:
+# list(occurrences = <data.frame>,
+#      edges = <data.frame>,
+#      dynamic_definitions = <data.frame>)
+#
+analyze_condition_argument <- function(expr,
+                                       argument_name,
+                                       call_name,
+                                       file,
+                                       line,
+                                       subclass_suffixes
+) {
+  argument <- get_named_argument(expr, argument_name)
+
+  if (is.null(argument)) {
+    return(list(occurrences = empty_occurrences(),
+                edges = empty_edges(),
+                dynamic_definitions = empty_dynamic_definitions()
+    ))
+  }
+
+  classes <- extract_character_literals(argument)
+
+  if (length(classes) == 0L) {
+    dynamic_definition <- data.frame(
+      argument = argument_name,
+      call = call_name,
+      file = file,
+      line = line,
+      expression = paste(deparse(argument), collapse = " ")
+    )
+
+    return(list(occurrences = empty_occurrences(),
+                edges = empty_edges(),
+                dynamic_definitions = dynamic_definition
+    ))
+  }
+
+  full_classes <- expand_condition_classes(
+    classes = classes,
+    argument_name = argument_name,
+    call_name = call_name,
+    subclass_suffixes = subclass_suffixes
+  )
+
+  result <- list(
+    occurrences = make_occurrence_rows(
+      classes = full_classes,
+      argument_name = argument_name,
+      call_name = call_name,
+      file = file,
+      line = line
+    ),
+    edges = make_edge_rows(
+      classes = full_classes,
+      argument_name = argument_name,
+      call_name = call_name,
+      file = file,
+      line = line
+    ),
+    dynamic_definitions = empty_dynamic_definitions()
+  )
+
+  return(result)
+}
+
 
 ## Package-level finalization  =================================================
 
@@ -707,60 +779,28 @@ extract_condition_hierarchy <- function(
     }
 
     for (argument_name in argument_names) {
-      argument <- get_named_argument(expr, argument_name)
-
-      if (is.null(argument)) {
-        next
-      }
-
-      classes <- extract_character_literals(argument)
-
-      if (length(classes) == 0L) {
-        dynamic_index <<- dynamic_index + 1L
-
-        dynamic_rows[[dynamic_index]] <<- data.frame(
-          argument = argument_name,
-          call = current_call,
-          file = file,
-          line = current_line,
-          expression = paste(
-            deparse(argument),
-            collapse = " "
-          ),
-          stringsAsFactors = FALSE
-        )
-
-        next
-      }
-
-      # If subclass is passed to a base constructor, append the
-      # known base hierarchy.
-      full_classes <- expand_condition_classes(
-        classes = classes,
-        argument_name = argument_name,
-        call_name = current_call,
-        subclass_suffixes = subclass_suffixes
-      )
-
-      occurrence_index <<- occurrence_index + 1L
-
-      occurrence_rows[[occurrence_index]] <<- make_occurrence_rows(
-        classes = full_classes,
+      argument_analysis <- analyze_condition_argument(
+        expr = expr,
         argument_name = argument_name,
         call_name = current_call,
         file = file,
-        line = current_line
+        line = current_line,
+        subclass_suffixes = subclass_suffixes
       )
 
-      new_edges <- make_edge_rows(classes = full_classes,
-                                  argument_name = argument_name,
-                                  call_name = current_call,
-                                  file = file,
-                                  line = current_line)
+      if (nrow(argument_analysis$occurrences) > 0L) {
+        occurrence_index <<- occurrence_index + 1L
+        occurrence_rows[[occurrence_index]] <<- argument_analysis$occurrences
+      }
 
-      if (nrow(new_edges) > 0L) {
+      if (nrow(argument_analysis$edges) > 0L) {
         edge_index <<- edge_index + 1L
-        edge_rows[[edge_index]] <<- new_edges
+        edge_rows[[edge_index]] <<- argument_analysis$edges
+      }
+
+      if (nrow(argument_analysis$dynamic_definitions) > 0L) {
+        dynamic_index <<- dynamic_index + 1L
+        dynamic_rows[[dynamic_index]] <<- argument_analysis$dynamic_definitions
       }
     }
 
