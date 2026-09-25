@@ -167,18 +167,17 @@ classify_subclass_argument <- function(expr) {
 #
 # Calls `callback` on the current expression and all nested calls,
 # expression vectors, and pairlists. Missing arguments are skipped safely.
-walk_expression <- function(expr, callback, file) {
+# Additional arguments supplied through `...` are forwarded unchanged to the
+# callback and to every recursive invocation.
+walk_expression <- function(expr, callback, file, ...) {
   if (missing(expr)) {
     return(invisible(NULL))
   }
 
-  callback(expr, file)
+  callback(expr, file, ...)
 
-  if (
-    is.call(expr) ||
-    is.expression(expr) ||
-    is.pairlist(expr)
-  ) {
+  if (is.call(expr) || is.expression(expr) || is.pairlist(expr))
+  {
     number_of_components <- length(expr)
 
     if (number_of_components > 0L) {
@@ -186,7 +185,8 @@ walk_expression <- function(expr, callback, file) {
         walk_expression(
           expr[[i]],
           callback = callback,
-          file = file
+          file = file,
+          ...
         )
       }
     }
@@ -461,6 +461,22 @@ analyze_condition_argument <- function(argument,
 }
 
 
+# Create mutable storage for findings produced during AST traversal.
+#
+# Rows are stored only when an expression produces an actual finding. This
+# avoids constructing empty data frames for the many irrelevant AST nodes.
+new_condition_analysis_accumulator <- function() {
+  accumulator <- new.env(parent = emptyenv())
+
+  accumulator$occurrence_rows <- list()
+  accumulator$edge_rows <- list()
+  accumulator$dynamic_rows <- list()
+  accumulator$base_only_condition_rows <- list()
+
+  return(accumulator)
+}
+
+
 ## Package-level finalization  =================================================
 
 
@@ -635,6 +651,108 @@ new_constructor_location_cursor <- function(locations) {
 }
 
 
+# Inspect one parsed expression for condition class information.
+#
+# Registered constructors are checked for base-only conditions, while literal
+# `class` and `subclass` vectors are converted into occurrences and direct
+# hierarchy edges. Actual findings are appended to `accumulator`.
+inspect_condition_expression <- function(expr,
+                                         file,
+                                         argument_names,
+                                         subclass_suffixes,
+                                         location_cursor,
+                                         accumulator)
+{
+  if (!is.call(expr)) { return(invisible(NULL)) }
+
+  current_call <- get_call_name(expr)
+  current_line <- get_expression_line(expr)
+  current_column <- NA_integer_
+
+  is_registered_constructor <- !is.null(subclass_suffixes) &&
+    !is.na(current_call) &&
+    current_call %in% names(subclass_suffixes)
+
+  # Nested calls frequently do not have an srcref. For registered condition
+  # constructors, obtain the location from the parser token table.
+  if (is_registered_constructor) {
+    constructor_location <- location_cursor$consume(current_call)
+
+    current_line <- constructor_location$line
+    current_column <- constructor_location$column
+  }
+
+  # Detect calls to registered base constructors where `subclass` is absent
+  # or syntactically missing.
+  if (is_registered_constructor) {
+    base_only_reason <- classify_subclass_argument(expr)
+
+    if (!is.null(base_only_reason)) {
+      suffix <- subclass_suffixes[[current_call]]
+
+      base_class <- if (length(suffix) > 0L) suffix[[1L]] else NA_character_
+
+      condition_type <- if ("error" %in% suffix) {
+        "error"
+      } else if ("warning" %in% suffix) {
+        "warning"
+      } else if ("message" %in% suffix) {
+        "message"
+      } else {
+        "condition"
+      }
+
+      row_index <- length(accumulator$base_only_condition_rows) + 1L
+
+      accumulator$base_only_condition_rows[[row_index]] <-
+        data.frame(condition_type = condition_type,
+                   base_class = base_class,
+                   call = current_call,
+                   file = file,
+                   line = current_line,
+                   column = current_column,
+                   reason = base_only_reason)
+    }
+  }
+
+  for (argument_name in argument_names)
+  {
+    argument <- get_named_argument(expr, argument_name)
+
+    if (is.null(argument)) { next }
+
+    argument_analysis <- analyze_condition_argument(
+      argument = argument,
+      argument_name = argument_name,
+      call_name = current_call,
+      file = file,
+      line = current_line,
+      subclass_suffixes = subclass_suffixes
+    )
+
+    if (!is.null(argument_analysis$occurrences)) {
+      row_index <- length(accumulator$occurrence_rows) + 1L
+
+      accumulator$occurrence_rows[[row_index]] <- argument_analysis$occurrences
+    }
+
+    if (!is.null(argument_analysis$edges)) {
+      row_index <- length(accumulator$edge_rows) + 1L
+
+      accumulator$edge_rows[[row_index]] <- argument_analysis$edges
+    }
+
+    if (!is.null(argument_analysis$dynamic_definitions)) {
+      row_index <- length(accumulator$dynamic_rows) + 1L
+
+      accumulator$dynamic_rows[[row_index]] <- argument_analysis$dynamic_definitions
+    }
+  }
+
+  return(invisible(NULL))
+}
+
+
 
 #' Extract a condition class hierarchy from package source files
 #'
@@ -676,128 +794,11 @@ extract_condition_hierarchy <- function(
 {
   source_files <- find_r_source_files(package_path = package_path,
                                       source_directories = source_directories)
-  location_cursor <- NULL
 
-  occurrence_rows <- list()
-  edge_rows <- list()
-  dynamic_rows <- list()
+  accumulator <- new_condition_analysis_accumulator()
+
   parse_error_rows <- list()
-  base_only_condition_rows <- list()
-
-  occurrence_index <- 0L
-  edge_index <- 0L
-  dynamic_index <- 0L
   parse_error_index <- 0L
-  base_only_condition_index <- 0L
-
-
-  # Inspect one parsed expression for condition class information.
-  #
-  # Registered constructors are checked for base-only conditions, while
-  # literal `class` and `subclass` vectors are converted into occurrences
-  # and direct hierarchy edges.
-  inspect_expression <- function(expr, file) {
-    if (!is.call(expr)) {
-      return(invisible(NULL))
-    }
-
-    current_call <- get_call_name(expr)
-
-    current_line <- get_expression_line(expr)
-    current_column <- NA_integer_
-
-    # Nested calls frequently do not have an srcref. For registered
-    # condition constructors, obtain the location from getParseData().
-    if (!is.null(subclass_suffixes) &&
-        !is.na(current_call) &&
-        current_call %in% names(subclass_suffixes)
-    ) {
-      constructor_location <- location_cursor$consume(current_call)
-
-      current_line <- constructor_location$line
-      current_column <- constructor_location$column
-    }
-
-    # Detect direct calls to registered base constructors where subclass
-    # is absent or explicitly empty.
-    #
-    # The names of the registered constructors come from
-    # subclass_suffixes. This therefore works for both errors and warnings.
-    if (
-      !is.null(subclass_suffixes) &&
-      !is.na(current_call) &&
-      current_call %in% names(subclass_suffixes)
-    ) {
-      base_only_reason <- classify_subclass_argument(expr)
-
-      if (!is.null(base_only_reason)) {
-        suffix <- subclass_suffixes[[current_call]]
-
-        base_class <- if (length(suffix) > 0L) {
-          suffix[[1L]]
-        } else {
-          NA_character_
-        }
-
-        condition_type <- if ("error" %in% suffix) {
-          "error"
-        } else if ("warning" %in% suffix) {
-          "warning"
-        } else if ("message" %in% suffix) {
-          "message"
-        } else {
-          "condition"
-        }
-
-        base_only_condition_index <<-
-          base_only_condition_index + 1L
-
-        base_only_condition_rows[[base_only_condition_index]] <<- data.frame(
-          condition_type = condition_type,
-          base_class = base_class,
-          call = current_call,
-          file = file,
-          line = current_line,
-          column = current_column,
-          reason = base_only_reason,
-          stringsAsFactors = FALSE
-        )
-      }
-    }
-
-    for (argument_name in argument_names)
-    {
-      argument <- get_named_argument(expr, argument_name)
-
-      if (is.null(argument)) { next }
-
-      argument_analysis <- analyze_condition_argument(
-        argument = argument,
-        argument_name = argument_name,
-        call_name = current_call,
-        file = file,
-        line = current_line,
-        subclass_suffixes = subclass_suffixes
-      )
-
-      if (!is.null(argument_analysis$occurrences)) {
-        occurrence_index <<- occurrence_index + 1L
-        occurrence_rows[[occurrence_index]] <<- argument_analysis$occurrences
-      }
-
-      if (!is.null(argument_analysis$edges)) {
-        edge_index <<- edge_index + 1L
-        edge_rows[[edge_index]] <<- argument_analysis$edges
-      }
-
-      if (!is.null(argument_analysis$dynamic_definitions)) {
-        dynamic_index <<- dynamic_index + 1L
-        dynamic_rows[[dynamic_index]] <<- argument_analysis$dynamic_definitions
-      }
-    }
-
-    invisible(NULL)
-  }
 
   # Parse and inspect each source file independently.
   #
@@ -829,26 +830,31 @@ extract_condition_hierarchy <- function(
 
     walk_expression(
       parsed_file,
-      callback = inspect_expression,
-      file = source_file
+      callback = inspect_condition_expression,
+      file = source_file,
+      argument_names = argument_names,
+      subclass_suffixes = subclass_suffixes,
+      location_cursor = location_cursor,
+      accumulator = accumulator
     )
   }
 
   # Combine the collected rows into consistently structured result tables ======
 
   base_only_conditions <- unique(
-    bind_rows(base_only_condition_rows,
-              empty_result = empty_base_only_conditions()) )
+    bind_rows(accumulator$base_only_condition_rows,
+              empty_result = empty_base_only_conditions() ) )
 
-  occurrences <- bind_rows(occurrence_rows, empty_result = empty_occurrences())
+  occurrences <- bind_rows(accumulator$occurrence_rows,
+                           empty_result = empty_occurrences() )
 
-  edges <- unique(bind_rows(edge_rows, empty_result = empty_edges()) )
+  edges <- unique(
+    bind_rows(accumulator$edge_rows, empty_result = empty_edges() ) )
 
-  dynamic_definitions <- bind_rows(dynamic_rows,
-                                   empty_result = empty_dynamic_definitions())
+  dynamic_definitions <- bind_rows(accumulator$dynamic_rows,
+                                   empty_result = empty_dynamic_definitions() )
 
-  parse_errors <- bind_rows(parse_error_rows,
-                            empty_result = empty_parse_errors())
+  parse_errors <- bind_rows(parse_error_rows, empty_result = empty_parse_errors())
 
   analysis <- list(occurrences = occurrences,
                    edges = edges,

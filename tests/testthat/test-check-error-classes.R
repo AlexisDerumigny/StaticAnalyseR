@@ -724,4 +724,146 @@ test_that("one static class produces no hierarchy edge", {
 })
 
 
+test_that("condition expression inspection records static classes", {
+  expr <- quote(
+    structure(list(message = "Problem"),
+              class = c("SpecificError", "PackageError", "error", "condition"))
+  )
+
+  accumulator <- new_condition_analysis_accumulator()
+
+  location_cursor <- new_constructor_location_cursor(
+    data.frame(call = character(),
+               line = integer(),
+               column = integer())
+  )
+
+  inspect_condition_expression(expr = expr,
+                               file = "R/conditions.R",
+                               argument_names = c("class", "subclass"),
+                               subclass_suffixes = NULL,
+                               location_cursor = location_cursor,
+                               accumulator = accumulator)
+
+  expect_length(accumulator$occurrence_rows, 1L)
+
+  expect_identical(accumulator$occurrence_rows[[1L]]$class,
+                   c("SpecificError", "PackageError", "error", "condition") )
+
+  expect_length(accumulator$edge_rows, 1L)
+
+  expect_length(accumulator$dynamic_rows, 0L)
+})
+
+
+test_that("irrelevant expressions produce no findings", {
+  expr <- quote(length(x))
+
+  accumulator <- new_condition_analysis_accumulator()
+
+  location_cursor <- new_constructor_location_cursor(
+    data.frame(call = character(),
+               line = integer(),
+               column = integer())
+  )
+
+  inspect_condition_expression(expr = expr,
+                               file = "R/example.R",
+                               argument_names = c("class", "subclass"),
+                               subclass_suffixes = NULL,
+                               location_cursor = location_cursor,
+                               accumulator = accumulator)
+
+  expect_length(accumulator$occurrence_rows, 0L)
+  expect_length(accumulator$edge_rows, 0L)
+  expect_length(accumulator$dynamic_rows, 0L)
+
+  expect_length(accumulator$base_only_condition_rows, 0L)
+})
+
+test_that("condition expression inspection records dynamic classes", {
+  expr <- quote(structure(list(message = "Problem"), class = computed_classes))
+
+  accumulator <- new_condition_analysis_accumulator()
+
+  location_cursor <- new_constructor_location_cursor(
+    data.frame(call = character(),
+               line = integer(),
+               column = integer() ) )
+
+  inspect_condition_expression(expr = expr,
+                               file = "R/conditions.R",
+                               argument_names = "class",
+                               subclass_suffixes = NULL,
+                               location_cursor = location_cursor,
+                               accumulator = accumulator
+  )
+
+  expect_length(accumulator$occurrence_rows, 0L)
+  expect_length(accumulator$edge_rows, 0L)
+  expect_length(accumulator$dynamic_rows, 1L)
+
+  expect_identical(accumulator$dynamic_rows[[1L]]$expression, "computed_classes")
+})
+
+test_that("registered constructor without subclass is recorded", {
+  expr <- quote(package_error_condition(message = "Problem"))
+
+  suffixes <- list(
+    package_error_condition = c("PackageError", "error", "condition") )
+
+  locations <- data.frame(call = "package_error_condition",
+                          line = 42L,
+                          column = 5L)
+
+  accumulator <- new_condition_analysis_accumulator()
+  location_cursor <- new_constructor_location_cursor(locations)
+
+  inspect_condition_expression(expr = expr,
+                               file = "R/conditions.R",
+                               argument_names = c("class", "subclass"),
+                               subclass_suffixes = suffixes,
+                               location_cursor = location_cursor,
+                               accumulator = accumulator)
+
+  expect_length(accumulator$base_only_condition_rows, 1L)
+
+  result <- accumulator$base_only_condition_rows[[1L]]
+
+  expect_identical(result$condition_type, "error")
+
+  expect_identical(result$base_class, "PackageError")
+
+  expect_identical(result$line, 42L)
+  expect_identical(result$column, 5L)
+
+  expect_identical(result$reason, "subclass argument is absent")
+})
+
+test_that("non-call expressions produce no findings", {
+  accumulator <- new_condition_analysis_accumulator()
+
+  location_cursor <- new_constructor_location_cursor(
+    data.frame(call = character(),
+               line = integer(),
+               column = integer())
+  )
+
+  result <- inspect_condition_expression(
+    expr = quote(x),
+    file = "R/example.R",
+    argument_names = c("class", "subclass"),
+    subclass_suffixes = NULL,
+    location_cursor = location_cursor,
+    accumulator = accumulator
+  )
+
+  expect_null(result)
+  expect_length(accumulator$occurrence_rows, 0L)
+  expect_length(accumulator$edge_rows, 0L)
+  expect_length(accumulator$dynamic_rows, 0L)
+})
+
+
+
 
