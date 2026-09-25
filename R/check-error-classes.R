@@ -326,19 +326,19 @@ remove_consecutive_duplicates <- function(x) {
 expand_condition_classes <- function(classes,
                                      argument_name,
                                      call_name,
-                                     subclass_suffixes
-) {
+                                     subclass_suffixes)
+{
   full_classes <- classes
 
-  if (identical(argument_name, "subclass") && !is.null(subclass_suffixes))
-  {
+  if (identical(argument_name, "subclass") &&
+      !is.null(subclass_suffixes) &&
+      !is.na(call_name) &&
+      call_name %in% names(subclass_suffixes)
+  ) {
     matching_suffix <- subclass_suffixes[[call_name]]
 
     if (!is.null(matching_suffix)) {
-      full_classes <- c(
-        full_classes,
-        matching_suffix
-      )
+      full_classes <- c(full_classes, matching_suffix)
     }
   }
 
