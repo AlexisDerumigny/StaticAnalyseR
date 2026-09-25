@@ -491,14 +491,14 @@ test_that("an empty R source file parses successfully", {
 })
 
 
-test_that("constructor locations are consumed in order", {
+test_that("call locations are consumed in order", {
   locations <- data.frame(call = c("package_error_condition",
                                    "package_error_condition"),
                           line = c(10L, 20L),
                           column = c(3L, 5L)
   )
 
-  cursor <- new_constructor_location_cursor(locations)
+  cursor <- new_call_location_cursor(locations)
 
   first <- cursor$consume("package_error_condition")
 
@@ -510,7 +510,7 @@ test_that("constructor locations are consumed in order", {
 })
 
 
-test_that("constructor positions are maintained separately", {
+test_that("call positions are maintained separately", {
   locations <- data.frame(
     call = c("error_constructor",
              "warning_constructor",
@@ -521,7 +521,7 @@ test_that("constructor positions are maintained separately", {
     column = c(1L, 2L, 3L, 4L)
   )
 
-  cursor <- new_constructor_location_cursor(locations)
+  cursor <- new_call_location_cursor(locations)
 
   first_error <- cursor$consume("error_constructor")
 
@@ -541,7 +541,7 @@ test_that("constructor positions are maintained separately", {
 test_that("an exhausted cursor returns a missing location", {
   locations <- data.frame(call = "error_constructor", line = 10L, column = 3L)
 
-  cursor <- new_constructor_location_cursor(locations)
+  cursor <- new_call_location_cursor(locations)
 
   cursor$consume("error_constructor")
 
@@ -550,10 +550,10 @@ test_that("an exhausted cursor returns a missing location", {
   expect_identical(result, list(line = NA_integer_, column = NA_integer_) )
 })
 
-test_that("an unknown constructor has no source location", {
+test_that("an unknown call has no source location", {
   locations <- data.frame(call = "error_constructor", line = 10L, column = 3L)
 
-  cursor <- new_constructor_location_cursor(locations)
+  cursor <- new_call_location_cursor(locations)
 
   result <- cursor$consume("unknown_constructor")
 
@@ -565,22 +565,22 @@ test_that("an empty cursor returns missing locations", {
                           line = integer(),
                           column = integer() )
 
-  cursor <- new_constructor_location_cursor(locations)
+  cursor <- new_call_location_cursor(locations)
 
   result <- cursor$consume("error_constructor")
 
   expect_identical(result, list(line = NA_integer_, column = NA_integer_) )
 })
 
-test_that("constructor location cursors have independent state", {
+test_that("call location cursors have independent state", {
   locations <- data.frame(call = c("error_constructor", "error_constructor"),
                           line = c(10L, 20L),
                           column = c(1L, 2L)
   )
 
-  first_cursor <- new_constructor_location_cursor(locations)
+  first_cursor <- new_call_location_cursor(locations)
 
-  second_cursor <- new_constructor_location_cursor(locations)
+  second_cursor <- new_call_location_cursor(locations)
 
   first_cursor$consume("error_constructor")
   first_cursor$consume("error_constructor")
@@ -589,6 +589,58 @@ test_that("constructor location cursors have independent state", {
 
   expect_identical(result$line, 10L)
 })
+
+
+# Tests for get_call_locations  ================================================
+
+test_that("call locations include constructors and condition signalers", {
+  source_file <- tempfile(fileext = ".R")
+
+  writeLines(c("example <- function(x) {",
+               "  package_error_condition(message = \"first\")",
+               "  stop(\"second\")",
+               "  warning(\"third\")",
+               "}"
+  ), source_file)
+
+  parsed <- parse_source_file(source_file)
+
+  result <- get_call_locations(
+    parsed_file = parsed$parsed_file,
+    call_names = c("package_error_condition", "stop", "warning") )
+
+  expect_identical(result$call,
+    c("package_error_condition", "stop", "warning")
+  )
+
+  expect_identical(result$line, c(2L, 3L, 4L) )
+
+  expect_identical(result$column, c(3L, 3L, 3L) )
+})
+
+
+test_that("call locations exclude unrequested functions", {
+  source_file <- tempfile(fileext = ".R")
+
+  writeLines(c("example <- function(x) {",
+               "  stop(\"problem\")",
+               "  print(x)",
+               "  warning(\"warning\")",
+               "}"
+  ), source_file)
+
+  parsed <- parse_source_file(source_file)
+
+  result <- get_call_locations(parsed_file = parsed$parsed_file,
+                               call_names = c("stop", "warning") )
+
+  expect_identical(result$call, c("stop", "warning") )
+
+  expect_false("print" %in% result$call)
+})
+
+
+# Tests for analyze_condition_argument  ========================================
 
 
 test_that("a static class vector produces occurrences and edges", {
@@ -733,7 +785,7 @@ test_that("condition expression inspection records static classes", {
 
   accumulator <- new_condition_analysis_accumulator()
 
-  location_cursor <- new_constructor_location_cursor(
+  location_cursor <- new_call_location_cursor(
     data.frame(call = character(),
                line = integer(),
                column = integer())
@@ -762,7 +814,7 @@ test_that("irrelevant expressions produce no findings", {
 
   accumulator <- new_condition_analysis_accumulator()
 
-  location_cursor <- new_constructor_location_cursor(
+  location_cursor <- new_call_location_cursor(
     data.frame(call = character(),
                line = integer(),
                column = integer())
@@ -787,7 +839,7 @@ test_that("condition expression inspection records dynamic classes", {
 
   accumulator <- new_condition_analysis_accumulator()
 
-  location_cursor <- new_constructor_location_cursor(
+  location_cursor <- new_call_location_cursor(
     data.frame(call = character(),
                line = integer(),
                column = integer() ) )
@@ -818,7 +870,7 @@ test_that("registered constructor without subclass is recorded", {
                           column = 5L)
 
   accumulator <- new_condition_analysis_accumulator()
-  location_cursor <- new_constructor_location_cursor(locations)
+  location_cursor <- new_call_location_cursor(locations)
 
   inspect_condition_expression(expr = expr,
                                file = "R/conditions.R",
@@ -844,7 +896,7 @@ test_that("registered constructor without subclass is recorded", {
 test_that("non-call expressions produce no findings", {
   accumulator <- new_condition_analysis_accumulator()
 
-  location_cursor <- new_constructor_location_cursor(
+  location_cursor <- new_call_location_cursor(
     data.frame(call = character(),
                line = integer(),
                column = integer())

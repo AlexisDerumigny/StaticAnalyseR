@@ -500,34 +500,35 @@ parse_source_file <- function(source_file)
 }
 
 
-# Find source locations of registered condition constructor calls.
+# Find source locations of selected function calls.
 #
 # Uses the parser token table to locate calls whose names occur in
-# `constructor_names`.
-# @returns a data.frame containing their function names, lines, and columns
-# in source order.
-get_constructor_locations <- function(parsed_file, constructor_names)
+# `call_names`.
+#
+# @returns A data frame containing call names, lines, and columns in source
+# order.
+get_call_locations <- function(parsed_file, call_names)
 {
   parse_data <- getParseData(parsed_file, includeText = TRUE)
 
-  if (is.null(parse_data) || nrow(parse_data) == 0) {
+  if (is.null(parse_data) || nrow(parse_data) == 0L) {
     return(data.frame(call = character(),
                       line = integer(),
                       column = integer() ) )
   }
 
-  locations <- parse_data[parse_data$token == "SYMBOL_FUNCTION_CALL" &
-                            parse_data$text %in% constructor_names,
-                          c("text", "line1", "col1")
-  ]
+  where = parse_data$token == "SYMBOL_FUNCTION_CALL" &
+    parse_data$text %in% call_names
+
+  locations <- parse_data[where, c("text", "line1", "col1"), drop = FALSE]
 
   names(locations) <- c("call", "line", "column")
 
-  locations <- locations[order(locations$line, locations$column), ,drop = FALSE]
+  locations <- locations[order(locations$line, locations$column), , drop = FALSE]
 
   row.names(locations) <- NULL
 
-  return (locations)
+  return(locations)
 }
 
 
@@ -568,11 +569,11 @@ walk_expression <- function(expr, callback, file, ...) {
 }
 
 
-# Create a stateful cursor over constructor source locations.
+# Create a stateful cursor over call source locations.
 #
-# The cursor maintains a separate position for each constructor name because
-# the same constructor can occur several times in one source file.
-new_constructor_location_cursor <- function(locations)
+# The cursor maintains a separate position for each canonical call name because
+# the same function can occur several times in one source file.
+new_call_location_cursor <- function(locations)
 {
   next_positions <- new.env(parent = emptyenv())
 
@@ -604,7 +605,7 @@ new_constructor_location_cursor <- function(locations)
     return(result)
   }
 
-  return (list(consume = consume) )
+  return(list(consume = consume))
 }
 
 
@@ -646,10 +647,9 @@ inspect_condition_expression <- function(
   # Nested calls frequently do not have an srcref. For registered condition
   # constructors, obtain the location from the parser token table.
   if (is_registered_constructor) {
-    constructor_location <- location_cursor$consume(current_call)
-
-    current_line <- constructor_location$line
-    current_column <- constructor_location$column
+    call_location <- location_cursor$consume(current_call)
+    current_line <- call_location$line
+    current_column <- call_location$column
   }
 
   # Detect calls to registered base constructors where `subclass` is absent
@@ -801,6 +801,10 @@ extract_condition_hierarchy <- function(
     names(subclass_suffixes)
   }
 
+  condition_signaler_names <- c("stop", "warning")
+
+  located_call_names <- c(constructor_names, condition_signaler_names)
+
   accumulator <- new_condition_analysis_accumulator()
 
   parse_error_rows <- list()
@@ -808,7 +812,7 @@ extract_condition_hierarchy <- function(
 
   # Parse and inspect each source file independently.
   #
-  # Constructor locations and their consumption counters are reset for every
+  # Call locations and their consumption counters are reset for every
   # file because parser line and column information is file-specific.
   for (source_file in source_files) {
     parsed <- parse_source_file(source_file)
@@ -822,11 +826,10 @@ extract_condition_hierarchy <- function(
 
     # Get the data frame of constructor locations of error calls with their
     # information.
-    df_constructor_locations <- get_constructor_locations(
-      parsed_file = parsed$parsed_file,
-      constructor_names = constructor_names)
+    df_call_locations <- get_call_locations(parsed_file = parsed$parsed_file,
+                                            call_names = located_call_names)
 
-    location_cursor <- new_constructor_location_cursor(df_constructor_locations)
+    location_cursor <- new_call_location_cursor(df_call_locations)
 
     walk_expression(
       parsed$parsed_file,
