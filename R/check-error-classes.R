@@ -22,6 +22,30 @@ bind_rows <- function(rows, empty_result = NULL) {
 }
 
 
+# Remove consecutive duplicate values from a vector.
+#
+# Non-consecutive duplicates are retained because they may describe separate
+# positions in a declared condition hierarchy.
+remove_consecutive_duplicates <- function(x)
+{
+  if (length(x) <= 1L) {
+    return(x)
+  }
+
+  keep <- c(
+    TRUE,
+    x[-1L] != x[-length(x)]
+  )
+
+  result = x[keep]
+  return (result)
+}
+
+
+
+# Helpers to extract part of an expression  ====================================
+
+
 # Extract the function name from a call expression.
 #
 # Handles both ordinary calls, such as `stop()`, and namespace-qualified
@@ -39,16 +63,12 @@ get_call_name <- function(expr) {
   }
 
   # Handle namespace-qualified calls such as rlang::abort().
-  if (
-    is.call(call_head) &&
-    length(call_head) == 3L &&
-    as.character(call_head[[1L]]) %in% c("::", ":::")
-  ) {
-    return(paste0(
-      as.character(call_head[[2L]]),
-      as.character(call_head[[1L]]),
-      as.character(call_head[[3L]])
-    ))
+  if (is.call(call_head) && length(call_head) == 3L &&
+      as.character(call_head[[1L]]) %in% c("::", ":::")  )
+  {
+    return(paste0(as.character(call_head[[2L]]),
+                  as.character(call_head[[1L]]),
+                  as.character(call_head[[3L]]) ) )
   }
 
   return (NA_character_)
@@ -66,14 +86,9 @@ extract_character_literals <- function(expr) {
     return(as.character(expr))
   }
 
-  if (
-    is.call(expr) &&
-    identical(expr[[1L]], as.name("c"))
-  ) {
-    values <- lapply(
-      as.list(expr)[-1L],
-      extract_character_literals
-    )
+  if (is.call(expr) && identical(expr[[1L]], as.name("c") ) )
+  {
+    values <- lapply(as.list(expr)[-1L], extract_character_literals)
 
     # Reject partially dynamic vectors.
     if (any(lengths(values) == 0L)) {
@@ -112,7 +127,8 @@ is_missing_argument <- function(x) {
 # Returns the unevaluated argument expression, or `NULL` when the input is
 # not a call, the argument is absent, or the argument is syntactically
 # missing.
-get_named_argument <- function(expr, argument_name) {
+get_named_argument <- function(expr, argument_name)
+{
   if (!is.call(expr)) {
     return(NULL)
   }
@@ -144,11 +160,9 @@ get_named_argument <- function(expr, argument_name) {
 #
 # Returns a descriptive character string when `subclass` is absent or
 # syntactically missing. Returns `NULL` when a subclass argument is present.
-classify_subclass_argument <- function(expr) {
-  subclass <- get_named_argument(
-    expr,
-    argument_name = "subclass"
-  )
+classify_subclass_argument <- function(expr)
+{
+  subclass <- get_named_argument(expr, argument_name = "subclass")
 
   # The argument is absent, or is a syntactically missing argument:
   #
@@ -163,43 +177,7 @@ classify_subclass_argument <- function(expr) {
 }
 
 
-# Recursively traverse a parsed R expression.
-#
-# Calls `callback` on the current expression and all nested calls,
-# expression vectors, and pairlists. Missing arguments are skipped safely.
-# Additional arguments supplied through `...` are forwarded unchanged to the
-# callback and to every recursive invocation.
-walk_expression <- function(expr, callback, file, ...) {
-  if (missing(expr)) {
-    return(invisible(NULL))
-  }
-
-  callback(expr, file, ...)
-
-  if (is.call(expr) || is.expression(expr) || is.pairlist(expr))
-  {
-    number_of_components <- length(expr)
-
-    if (number_of_components > 0L) {
-      for (i in seq_len(number_of_components)) {
-        walk_expression(
-          expr[[i]],
-          callback = callback,
-          file = file,
-          ...
-        )
-      }
-    }
-  }
-
-  invisible(NULL)
-}
-
-
-# Helpers for `extract_condition_hierarchy()`  =================================
-
-
-## Empty-result constructors ===================================================
+# Empty-result constructors ====================================================
 
 
 # Create an empty occurrence table with the expected column types.
@@ -292,36 +270,16 @@ empty_file_analysis <- function() {
 }
 
 
-## Row-building helpers  =======================================================
+# Row-building helpers  ========================================================
 
-
-# Remove consecutive duplicate values from a vector.
-#
-# Non-consecutive duplicates are retained because they may describe separate
-# positions in a declared condition hierarchy.
-remove_consecutive_duplicates <- function(x) {
-  if (length(x) <= 1L) {
-    return(x)
-  }
-
-  keep <- c(
-    TRUE,
-    x[-1L] != x[-length(x)]
-  )
-
-  result = x[keep]
-  return (result)
-}
 
 # Expand a statically extracted condition class vector.
 #
 # When the argument is `subclass` and the current call is a registered
 # constructor, append the constructor's known fixed class suffix. Consecutive
 # duplicates introduced at the boundary are then removed.
-expand_condition_classes <- function(classes,
-                                     argument_name,
-                                     call_name,
-                                     subclass_suffixes)
+expand_condition_classes <- function(
+    classes, argument_name, call_name, subclass_suffixes)
 {
   full_classes <- classes
 
@@ -440,48 +398,7 @@ analyze_condition_argument <- function(
 }
 
 
-# Create mutable storage for findings produced during AST traversal.
-#
-# Rows are stored only when an expression produces an actual finding. This
-# avoids constructing empty data frames for the many irrelevant AST nodes.
-new_condition_analysis_accumulator <- function() {
-  accumulator <- new.env(parent = emptyenv())
-
-  accumulator$occurrence_rows <- list()
-  accumulator$edge_rows <- list()
-  accumulator$dynamic_rows <- list()
-  accumulator$base_only_condition_rows <- list()
-
-  return(accumulator)
-}
-
-
-## Package-level finalization  =================================================
-
-
-# Find classes associated with multiple direct parents.
-#
-# Returns all hierarchy edges whose child has more than one distinct parent.
-# Repeated occurrences of the same child-parent relationship are not treated
-# as inconsistencies.
-find_inconsistent_parents <- function(edges) {
-  if (nrow(edges) == 0L) {
-    return(empty_edges())
-  }
-
-  parents_by_class <- split(edges$parent, edges$child)
-
-  number_of_parents <- lengths(lapply(parents_by_class, unique))
-
-  inconsistent_classes <- names(number_of_parents[number_of_parents > 1L])
-
-  result <- edges[edges$child %in% inconsistent_classes, , drop = FALSE]
-
-  return(result)
-}
-
-
-## Source-file discovery  ======================================================
+# Source-file discovery and parsing  ===========================================
 
 
 # Find R source files in requested package directories.
@@ -522,8 +439,6 @@ find_r_source_files <- function(package_path, source_directories)
 
   return(source_files)
 }
-
-## Source-file parsing =========================================================
 
 
 # Parse one R source file without evaluating it.
@@ -580,6 +495,43 @@ get_constructor_locations <- function(parsed_file, constructor_names)
 }
 
 
+
+# Traversing inspecting expressions  ===========================================
+
+
+# Recursively traverse a parsed R expression.
+#
+# Calls `callback` on the current expression and all nested calls,
+# expression vectors, and pairlists. Missing arguments are skipped safely.
+# Additional arguments supplied through `...` are forwarded unchanged to the
+# callback and to every recursive invocation.
+walk_expression <- function(expr, callback, file, ...) {
+  if (missing(expr)) {
+    return(invisible(NULL))
+  }
+
+  callback(expr, file, ...)
+
+  if (is.call(expr) || is.expression(expr) || is.pairlist(expr))
+  {
+    number_of_components <- length(expr)
+
+    if (number_of_components > 0L) {
+      for (i in seq_len(number_of_components)) {
+        walk_expression(
+          expr[[i]],
+          callback = callback,
+          file = file,
+          ...
+        )
+      }
+    }
+  }
+
+  invisible(NULL)
+}
+
+
 # Create a stateful cursor over constructor source locations.
 #
 # The cursor maintains a separate position for each constructor name because
@@ -620,17 +572,29 @@ new_constructor_location_cursor <- function(locations)
 }
 
 
+# Create mutable storage for findings produced during AST traversal.
+#
+# Rows are stored only when an expression produces an actual finding. This
+# avoids constructing empty data frames for the many irrelevant AST nodes.
+new_condition_analysis_accumulator <- function() {
+  accumulator <- new.env(parent = emptyenv())
+
+  accumulator$occurrence_rows <- list()
+  accumulator$edge_rows <- list()
+  accumulator$dynamic_rows <- list()
+  accumulator$base_only_condition_rows <- list()
+
+  return(accumulator)
+}
+
+
 # Inspect one parsed expression for condition class information.
 #
 # Registered constructors are checked for base-only conditions, while literal
 # `class` and `subclass` vectors are converted into occurrences and direct
 # hierarchy edges. Actual findings are appended to `accumulator`.
-inspect_condition_expression <- function(expr,
-                                         file,
-                                         argument_names,
-                                         subclass_suffixes,
-                                         location_cursor,
-                                         accumulator)
+inspect_condition_expression <- function(
+    expr, file, argument_names, subclass_suffixes, location_cursor, accumulator)
 {
   if (!is.call(expr)) { return(invisible(NULL)) }
 
@@ -722,6 +686,32 @@ inspect_condition_expression <- function(expr,
 }
 
 
+# Package-level finalization  ==================================================
+
+
+# Find classes associated with multiple direct parents.
+#
+# Returns all hierarchy edges whose child has more than one distinct parent.
+# Repeated occurrences of the same child-parent relationship are not treated
+# as inconsistencies.
+find_inconsistent_parents <- function(edges) {
+  if (nrow(edges) == 0L) {
+    return(empty_edges())
+  }
+
+  parents_by_class <- split(edges$parent, edges$child)
+
+  number_of_parents <- lengths(lapply(parents_by_class, unique))
+
+  inconsistent_classes <- names(number_of_parents[number_of_parents > 1L])
+
+  result <- edges[edges$child %in% inconsistent_classes, , drop = FALSE]
+
+  return(result)
+}
+
+
+# Main function of this file  ==================================================
 
 #' Extract a condition class hierarchy from package source files
 #'
