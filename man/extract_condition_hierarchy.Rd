@@ -24,7 +24,8 @@ which condition classes should be extracted.}
 class suffix appended to their \code{subclass} argument.}
 }
 \value{
-A named list containing:
+An object of class \code{"condition_hierarchy"}.
+This is a (classed) named list containing:
 \describe{
 \item{edges}{Direct child-parent class relationships.}
 \item{occurrences}{Every statically detected condition class occurrence.}

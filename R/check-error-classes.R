@@ -742,7 +742,8 @@ inspect_condition_expression <- function(expr,
 #' @param subclass_suffixes Named list mapping constructor names to the fixed
 #' class suffix appended to their `subclass` argument.
 #'
-#' @return A named list containing:
+#' @return An object of class `"condition_hierarchy"`.
+#' This is a (classed) named list containing:
 #' \describe{
 #'   \item{edges}{Direct child-parent class relationships.}
 #'   \item{occurrences}{Every statically detected condition class occurrence.}
@@ -825,15 +826,17 @@ extract_condition_hierarchy <- function(
 
   parse_errors <- bind_rows(parse_error_rows, empty_result = empty_parse_errors())
 
-  analysis <- list(occurrences = occurrences,
-                   edges = edges,
-                   dynamic_definitions = dynamic_definitions,
-                   parse_errors = parse_errors,
-                   base_only_conditions = base_only_conditions
+  result <- list(occurrences = occurrences,
+                 edges = edges,
+                 dynamic_definitions = dynamic_definitions,
+                 parse_errors = parse_errors,
+                 base_only_conditions = base_only_conditions
   )
 
-  analysis$inconsistent_parents = find_inconsistent_parents(analysis$edges)
+  result$inconsistent_parents = find_inconsistent_parents(result$edges)
 
-  return (analysis)
+  class(result) <- "condition_hierarchy"
+
+  return (result)
 }
 

@@ -142,45 +142,51 @@ find_reachable_classes <- function(edges, root = "condition")
 }
 
 
-#' Print a condition class hierarchy
+#' Print a condition hierarchy
 #'
-#' Print an indented class tree beginning at a specified root and warn when
-#' condition classes are not connected to that root.
+#' Print a condition hierarchy using one of the available representations.
+#' The tree representation begins at a specified root and warns when condition
+#' classes are not connected to that root.
 #'
-#' @param edges A data frame containing `child` and `parent` columns.
-#' @param root Name of the root condition class. The default is
-#'   `"condition"`.
+#' @param x A `"condition_hierarchy"` object produced by
+#'   [extract_condition_hierarchy()].
+#' @param type Character string specifying the representation to print.
+#'   Currently, only `"tree"` is supported.
+#' @param root Name of the root condition class used by the tree
+#'   representation. The default is `"condition"`.
+#' @param ... Additional arguments reserved for future print representations.
 #'
-#' @return Invisibly returns a list with two character vectors:
-#'   `reachable`, containing classes connected to the root, and
-#'   `disconnected`, containing classes outside the printed tree.
+#' @return `x`, invisibly.
 #'
 #' @export
-print_condition_tree <- function(edges, root = "condition")
+print.condition_hierarchy <- function(x, type = "tree", root = "condition", ...)
 {
-  all_classes <- unique(c(edges$child, edges$parent))
+  type <- match.arg(type, choices = "tree")
 
-  reachable_classes <- find_reachable_classes(edges, root = root)
+  if (type == "tree")
+  {
+    edges <- x$edges
 
-  disconnected_classes <- setdiff(all_classes, reachable_classes )
+    all_classes <- unique(c(edges$child, edges$parent))
+    reachable_classes <- find_reachable_classes(edges, root = root)
 
-  cat(format_class_tree(edges, root = root), "\n")
+    disconnected_classes <- setdiff(all_classes, reachable_classes)
 
-  if (length(disconnected_classes) > 0L) {
-    warning(
-      paste0(
-        "Classes not connected to '",
-        root,
-        "': ",
-        paste(disconnected_classes, collapse = ", ")
-      ),
-      call. = FALSE
-    )
+    cat(format_class_tree(edges, root = root), "\n")
+
+    if (length(disconnected_classes) > 0L) {
+      warning(
+        paste0(
+          "Classes not connected to '",
+          root,
+          "': ",
+          paste(disconnected_classes, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
   }
 
-  invisible(list(
-    reachable = reachable_classes,
-    disconnected = disconnected_classes
-  ))
+  invisible(x)
 }
 

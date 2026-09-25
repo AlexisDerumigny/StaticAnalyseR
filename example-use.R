@@ -48,10 +48,7 @@ hierarchy$base_only_conditions[
 #
 # print(hierarchy$base_only_conditions)
 
-tree_check <- print_condition_tree(
-  hierarchy$edges
-)
-
+print(hierarchy, type = "tree")
 
 
 condition_suffixes <- list(
@@ -68,9 +65,7 @@ hierarchy <- extract_condition_hierarchy(
   subclass_suffixes = condition_suffixes
 )
 
-print_condition_tree(
-  hierarchy$edges
-)
+print(hierarchy, type = "tree")
 
 condition_suffixes <- list(
   CondCopulas_error_condition_base = c(
@@ -92,8 +87,5 @@ hierarchy <- extract_condition_hierarchy(
   subclass_suffixes = condition_suffixes
 )
 
-print_condition_tree(
-  hierarchy$edges
-)
-
+print(hierarchy, type = "tree")
 
