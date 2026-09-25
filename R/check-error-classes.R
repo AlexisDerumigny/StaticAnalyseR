@@ -213,8 +213,7 @@ empty_occurrences <- function() {
     argument = character(),
     call = character(),
     file = character(),
-    line = integer(),
-    stringsAsFactors = FALSE
+    line = integer()
   )
 }
 
@@ -230,8 +229,7 @@ empty_edges <- function() {
     source = character(),
     call = character(),
     file = character(),
-    line = integer(),
-    stringsAsFactors = FALSE
+    line = integer()
   )
 }
 
@@ -245,8 +243,7 @@ empty_dynamic_definitions <- function() {
     call = character(),
     file = character(),
     line = integer(),
-    expression = character(),
-    stringsAsFactors = FALSE
+    expression = character()
   )
 }
 
@@ -258,8 +255,7 @@ empty_dynamic_definitions <- function() {
 empty_parse_errors <- function() {
   data.frame(
     file = character(),
-    message = character(),
-    stringsAsFactors = FALSE
+    message = character()
   )
 }
 
@@ -276,8 +272,7 @@ empty_base_only_conditions <- function() {
     file = character(),
     line = integer(),
     column = integer(),
-    reason = character(),
-    stringsAsFactors = FALSE
+    reason = character()
   )
 }
 
@@ -348,12 +343,8 @@ expand_condition_classes <- function(classes,
 
 
 # Create one occurrence row for each class in a condition class vector.
-make_occurrence_rows <- function(classes,
-                                 argument_name,
-                                 call_name,
-                                 file,
-                                 line
-) {
+make_occurrence_rows <- function(classes, argument_name, call_name, file, line)
+{
   if (length(classes) == 0L) {
     return(empty_occurrences())
   }
@@ -363,9 +354,7 @@ make_occurrence_rows <- function(classes,
                       argument = rep(argument_name, length(classes)),
                       call = rep(call_name, length(classes)),
                       file = rep(file, length(classes)),
-                      line = rep(line, length(classes)),
-                      stringsAsFactors = FALSE
-  )
+                      line = rep(line, length(classes)) )
 
   return (result)
 }
@@ -375,12 +364,8 @@ make_occurrence_rows <- function(classes,
 #
 # For a class vector c("A", "B", "C"), the resulting edges are A -> B and
 # B -> C.
-make_edge_rows <- function(classes,
-                           argument_name,
-                           call_name,
-                           file,
-                           line
-) {
+make_edge_rows <- function(classes, argument_name, call_name, file, line)
+{
   if (length(classes) < 2L) {
     return(empty_edges())
   }
@@ -393,9 +378,7 @@ make_edge_rows <- function(classes,
                       source = rep(argument_name, number_of_edges),
                       call = rep(call_name, number_of_edges),
                       file = rep(file, number_of_edges),
-                      line = rep(line, number_of_edges),
-                      stringsAsFactors = FALSE
-  )
+                      line = rep(line, number_of_edges) )
 
   return (result)
 }
@@ -406,12 +389,8 @@ make_edge_rows <- function(classes,
 # Returns a list containing occurrence, edge, or dynamic-definition rows. Result
 # components without findings are NULL to avoid repeatedly constructing empty
 # data frames during AST traversal.
-analyze_condition_argument <- function(argument,
-                                       argument_name,
-                                       call_name,
-                                       file,
-                                       line,
-                                       subclass_suffixes)
+analyze_condition_argument <- function(
+    argument, argument_name, call_name, file, line, subclass_suffixes)
 {
   classes <- extract_character_literals(argument)
 
@@ -544,7 +523,7 @@ find_r_source_files <- function(package_path, source_directories)
   return(source_files)
 }
 
-## Source-file parsing ==========================================================
+## Source-file parsing =========================================================
 
 
 # Parse one R source file without evaluating it.
@@ -552,49 +531,38 @@ find_r_source_files <- function(package_path, source_directories)
 # Returns the parsed expression and an empty parse-error table when parsing
 # succeeds. If parsing fails, returns NULL as the parsed expression and a
 # one-row parse-error table describing the failure.
-parse_source_file <- function(source_file) {
-  parsed_file <- tryCatch(
-    parse(file = source_file,
-          keep.source = TRUE),
-    error = identity
-  )
+parse_source_file <- function(source_file)
+{
+  parsed_file <- tryCatch(parse(file = source_file, keep.source = TRUE),
+                          error = identity)
 
   if (inherits(parsed_file, "error")) {
-    return(list(
-      parsed_file = NULL,
-      parse_errors = data.frame(
-        file = source_file,
-        message = conditionMessage(parsed_file),
-        stringsAsFactors = FALSE
-      )
-    ) )
+    return(list(parsed_file = NULL,
+                parse_errors = data.frame(
+                  file = source_file,
+                  message = conditionMessage(parsed_file) ) ) )
   }
 
-  result <- list(parsed_file = parsed_file,
-                 parse_errors = empty_parse_errors()
-  )
+  result <- list(parsed_file = parsed_file, parse_errors = empty_parse_errors())
 
   return(result)
 }
 
 
-
 # Find source locations of registered condition constructor calls.
 #
 # Uses the parser token table to locate calls whose names occur in
-# `constructor_names`. Returns their function names, lines, and columns
+# `constructor_names`.
+# @returns a data.frame containing their function names, lines, and columns
 # in source order.
-get_constructor_locations <- function(
-    parsed_file,
-    constructor_names
-) {
+get_constructor_locations <- function(parsed_file, constructor_names)
+{
   parse_data <- getParseData(parsed_file, includeText = TRUE)
 
   if (is.null(parse_data) || nrow(parse_data) == 0) {
     return(data.frame(call = character(),
                       line = integer(),
-                      column = integer(),
-                      stringsAsFactors = FALSE) )
+                      column = integer() ) )
   }
 
   locations <- parse_data[parse_data$token == "SYMBOL_FUNCTION_CALL" &
@@ -616,7 +584,8 @@ get_constructor_locations <- function(
 #
 # The cursor maintains a separate position for each constructor name because
 # the same constructor can occur several times in one source file.
-new_constructor_location_cursor <- function(locations) {
+new_constructor_location_cursor <- function(locations)
+{
   next_positions <- new.env(parent = emptyenv())
 
   consume <- function(call_name)
@@ -820,16 +789,16 @@ extract_condition_hierarchy <- function(
       next
     }
 
-    parsed_file <- parsed$parsed_file
-
-    constructor_locations <- get_constructor_locations(
-      parsed_file = parsed_file,
+    # Get the data frame of constructor locations of error calls with their
+    # information.
+    df_constructor_locations <- get_constructor_locations(
+      parsed_file = parsed$parsed_file,
       constructor_names = constructor_names)
 
-    location_cursor <- new_constructor_location_cursor(constructor_locations)
+    location_cursor <- new_constructor_location_cursor(df_constructor_locations)
 
     walk_expression(
-      parsed_file,
+      parsed$parsed_file,
       callback = inspect_condition_expression,
       file = source_file,
       argument_names = argument_names,
