@@ -191,18 +191,25 @@ print.condition_hierarchy <- function(x, type = "tree", root = "condition", ...)
     cat(format_all_edges(x$edges), "\n")
   } else if (type == "base_only_conditions")
   {
-    print(hierarchy$base_only_conditions[
-      ,
+    base_only_conditions <-
+      x$base_only_conditions[,
       c(
         "condition_type",
         "base_class",
         "file",
         "line",
-        "column",
-        "reason"
+        "column"
+        # "reason"
       ),
       drop = FALSE
-    ] )
+    ]
+
+    base_only_conditions$file <-
+      gsub("\\", "/", base_only_conditions$file, fixed = TRUE)
+
+    base_only_conditions$file <- basename(base_only_conditions$file)
+
+    print(base_only_conditions, row.names = FALSE)
   }
 
   invisible(x)
